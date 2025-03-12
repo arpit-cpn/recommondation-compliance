@@ -373,7 +373,7 @@ async def get_batch_details(request: Request):
             # Filter DataFrame to only include recommendation tags and necessary columns
             cols_to_keep = ['DateTime', 'BATCH', 'run_state'] + reco_tags + [target_variable]
             cols_available = [col for col in cols_to_keep if col in df_production.columns]
-            df_filtered = df_production[cols_available]
+            df_filtered = df_production.loc[df_production['run_state'] == 'Uptime', cols_available]
             variable_stats = calculate_variable_stats(df_filtered, batch_id)
         except Exception as e:
             return {"error": f"Error calculating statistics: {str(e)}"}

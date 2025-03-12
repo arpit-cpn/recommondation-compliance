@@ -75,10 +75,10 @@
     </div>
 
     <v-card class="legend-info mb-4" variant="flat">
-      <v-card-text>
-        <div><v-icon color="success" size="small">mdi-circle</v-icon> Green dots: Recommendation batches</div>
-        <div><v-icon color="error" size="small">mdi-circle</v-icon> Red dots: Deviation batches (darker red = higher deviation)</div>
-        <div><v-icon color="grey" size="small">mdi-circle</v-icon> Gray dots: No recommendation reference</div>
+      <v-card-text class="d-flex align-center">
+        <div class="d-flex align-center legend-item"><v-icon color="success" size="small" class="me-1">mdi-circle</v-icon> Recommendation batches</div>
+        <div class="d-flex align-center legend-item"><v-icon color="error" size="small" class="me-1">mdi-circle</v-icon> Deviation batches</div>
+        <div class="d-flex align-center legend-item"><v-icon color="grey" size="small" class="me-1">mdi-circle</v-icon> No reference</div>
       </v-card-text>
     </v-card>
 
@@ -1023,19 +1023,23 @@ export default defineComponent({
   background-color: v-bind('controlsBackgroundColor') !important;
   border-left: 4px solid #409eff !important;
   font-size: 14px;
-  padding: 16px;
+  padding: 8px 16px;
+}
+
+.legend-info .v-card-text {
+  padding: 0 !important;
 }
 
 .legend-info .v-card-text div {
-  margin-bottom: 8px;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   font-size: 14px;
 }
 
 .legend-info .v-card-text div .v-icon {
-  margin-right: 12px;
-  font-size: 20px !important;
+  margin-right: 8px;
+  font-size: 16px !important;
 }
 
 .no-data-message, .initial-message {
@@ -1067,6 +1071,14 @@ export default defineComponent({
 .variable-summary {
   height: 500px;
   overflow-y: auto;
+}
+
+.legend-item {
+  margin-right: 32px;
+}
+
+.legend-item:last-child {
+  margin-right: 0;
 }
 </style>
 

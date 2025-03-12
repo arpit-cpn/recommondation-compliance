@@ -255,11 +255,36 @@ export default defineComponent({
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
       const gridColor = isDark ? '#333333' : '#ebeef5';
 
-      // Prepare time series data
+      // Prepare time series data and run state zones
       const timeSeriesData = props.data.map(item => [
         new Date(item.DateTime).getTime(),
         item[selectedVariable.value],
       ]).filter(point => point[1] !== null);
+
+      // Create zones for run states
+      const zones = [];
+      let currentZone = null;
+
+      props.data.forEach((item, index) => {
+        const time = new Date(item.DateTime).getTime();
+        const isUptime = item.run_state === 'Uptime';
+
+        if (!currentZone || currentZone.isUptime !== isUptime) {
+          if (currentZone) {
+            currentZone.end = time;
+          }
+          currentZone = {
+            start: time,
+            isUptime,
+          };
+          zones.push(currentZone);
+        }
+
+        // Handle last point
+        if (index === props.data.length - 1) {
+          currentZone.end = time;
+        }
+      });
 
       // Create time series chart
       Highcharts.chart(timeSeriesChart.value, {
@@ -276,6 +301,13 @@ export default defineComponent({
           type: 'datetime',
           gridLineColor: gridColor,
           labels: { style: { color: textColor } },
+          plotBands: zones.map(zone => ({
+            from: zone.start,
+            to: zone.end,
+            color: zone.isUptime
+              ? 'rgba(76, 175, 80, 0.1)' // Light green for Uptime
+              : 'rgba(244, 67, 54, 0.1)', // Light red for Downtime
+          })),
         },
         yAxis: {
           title: {
@@ -285,12 +317,39 @@ export default defineComponent({
           gridLineColor: gridColor,
           labels: { style: { color: textColor } },
         },
+        tooltip: {
+          formatter: function() {
+            const point = this.point;
+            const timestamp = Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', point.x);
+            const value = point.y.toFixed(2);
+            const runState = props.data.find(d => new Date(d.DateTime).getTime() === point.x)?.run_state;
+
+            return `<b>Time:</b> ${timestamp}<br/>
+                    <b>Value:</b> ${value}<br/>
+                    <b>State:</b> <span style="color: ${runState === 'Uptime' ? '#4CAF50' : '#F44336'}">${runState || 'Unknown'}</span>`;
+          },
+        },
         series: [{
           name: formatVariableName(selectedVariable.value),
           data: timeSeriesData,
           color: '#409eff',
+          states: {
+            hover: {
+              lineWidth: 2,
+            },
+          },
         }],
         credits: { enabled: false },
+        legend: {
+          enabled: true,
+          align: 'right',
+          verticalAlign: 'top',
+          floating: true,
+          backgroundColor: backgroundColor,
+          itemStyle: {
+            color: textColor,
+          },
+        },
       });
 
       // Create KDE plot
