@@ -1,0 +1,10 @@
+{
+  "production_data": {
+    "type": "clickhouse",
+    "query": "SELECT * FROM ccm.${site.replace(\"CCM-\", \"\").toLowerCase()}_${line.toLowerCase()}_ct WHERE minute_level BETWEEN now() - INTERVAL ${timeRange} MONTH AND now() AND part_number ILIKE '%${partFamily}%' AND run_state = 'Uptime' ORDER BY minute_level"
+  },
+  "alertman_data": {
+    "type": "clickhouse",
+    "query": "SELECT *, CASE WHEN state__parts REGEXP '^${partFamily}.*' THEN '${partFamily}' END AS part_family FROM ccm.alertman_full FINAL WHERE environment ILIKE '%${site.replace(\"CCM-\", \"\").toLowerCase()}%'"
+  }
+} 

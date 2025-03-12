@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deviation Analysis Dashboard</title>
+    <!-- Load required libraries -->
+    <script src="https://code.highcharts.com/stock/highstock.js"></script>
+    <script src="https://code.highcharts.com/modules/data.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/modules/export-data.js"></script>
+    <script src="https://code.highcharts.com/modules/accessibility.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #2a2a2b;
+            color: white;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #container {
+            min-width: 310px;
+            height: 600px;
+            margin: 0 auto;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+        }
+        .controls label {
+            margin-right: 10px;
+            white-space: nowrap;
+        }
+        input, select {
+            background: #3a3a3b;
+            color: white;
+            border: 1px solid #4a4a4b;
+            padding: 5px;
+            margin-right: 20px;
+        }
+        button {
+            background: #4a819e;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #5891ae;
+        }
+        .legend-info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #999;
+        }
+        .tooltip-container {
+            background: rgba(32, 32, 33, 0.98);
+            border: 1px solid #666;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: Arial, sans-serif;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            min-width: 280px;
+        }
+        .tooltip-header {
+            font-size: 16px;
+            color: #ffffff;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #666;
+            padding-bottom: 6px;
+            font-weight: bold;
+        }
+        .tooltip-content {
+            font-size: 13px;
+            color: #cccccc;
+        }
+        .tooltip-section {
+            margin: 8px 0;
+            line-height: 1.4;
+        }
+        .tooltip-label {
+            color: #999999;
+            display: inline-block;
+            width: 200px;
+            font-weight: 500;
+        }
+        .tooltip-value {
+            color: #ffffff;
+            font-weight: bold;
+        }
+        .deviation-bar {
+            display: inline-block;
+            height: 6px;
+            background: linear-gradient(to right, #ff4444, #ff0000);
+            margin-left: 10px;
+            border-radius: 3px;
+            vertical-align: middle;
+            transition: width 0.2s ease;
+        }
+        .deviation-row {
+            display: flex;
+            align-items: center;
+            margin: 4px 0;
+            justify-content: space-between;
+        }
+        .deviation-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+        .deviation-percent {
+            color: #ff4444;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="control-group">
+            <label>Site:</label>
+            <select id="site">
+                <option value="CCM-MONT">CCM-MONT</option>
+                <option value="CCM-Terrel">CCM-Terrel</option>
+                <option value="CCM-Tooele" selected>CCM-Tooele</option>
+                <option value="CCM-Sikeston">CCM-Sikeston</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Line:</label>
+            <select id="line">
+                <option value="l1">L1</option>
+                <option value="l2">L2</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Part Family:</label>
+            <select id="partFamily" style="min-width: 200px;">
+                <option value="0.5 High Density Cgf-Cgf" selected>0.5 High Density Cgf-Cgf</option>
+                <option value="0.5 High Density Blk-Blk">0.5 High Density Blk-Blk</option>
+                <option value="Q Taper Blk-Blk 20psi">Q Taper Blk-Blk 20psi</option>
+                <option value="Y Taper Blk-Blk 20psi">Y Taper Blk-Blk 20psi</option>
+                <option value="X Taper Blk-Blk 20psi">X Taper Blk-Blk 20psi</option>
+                <option value="1.5 Flat Blk-Blk 20psi">1.5 Flat Blk-Blk 20psi</option>
+                <option value="2.0 Flat Blk-Blk 20psi">2.0 Flat Blk-Blk 20psi</option>
+                <option value="2.2 Flat Blk-Blk 20psi">2.2 Flat Blk-Blk 20psi</option>
+                <option value="2.6 Flat Blk-Blk 20psi">2.6 Flat Blk-Blk 20psi</option>
+                <option value="1.0 Flat Blk-Blk 20psi">1.0 Flat Blk-Blk 20psi</option>
+                <option value="3.5 Flat Blk-Blk 20psi">3.5 Flat Blk-Blk 20psi</option>
+                <option value="C Taper Blk-Blk 20psi">C Taper Blk-Blk 20psi</option>
+                <option value="C Taper Blk-Blk 25psi">C Taper Blk-Blk 25psi</option>
+                <option value="3.0 Flat Blk-Blk 20psi">3.0 Flat Blk-Blk 20psi</option>
+                <option value="2.5 Flat Blk-Blk 20psi">2.5 Flat Blk-Blk 20psi</option>
+                <option value="2.6 Flat Cgf-Cgf 20psi">2.6 Flat Cgf-Cgf 20psi</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Target Variable:</label>
+            <select id="targetVariable" style="min-width: 150px;">
+                <option value="Running_Wet_Density">Running Wet Density</option>
+                <option value="avg_t1_thk">Average T1 Thickness</option>
+                <option value="avg_t1_core">Average T1 Core</option>
+                <option value="avg_t1_comp">Average T1 Compression</option>
+                <option value="KF_KF1_VALUE">KF KF1 Value</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Time Range:</label>
+            <select id="timeRange">
+                <option value="1">Last Month</option>
+                <option value="3">Last 3 Months</option>
+                <option value="6">Last 6 Months</option>
+                <option value="12" selected>Last Year</option>
+                <option value="18">Last 1.5 Years</option>
+            </select>
+        </div>
+
+        <button onclick="updateChart()">Update Chart</button>
+    </div>
+
+    <div class="legend-info">
+        <span>&#8226; Green dots: Recommendation batches</span><br>
+        <span>&#8226; Red dots: Deviation batches (darker red = higher deviation)</span><br>
+        <span>&#8226; Gray dots: No recommendation reference</span>
+    </div>
+
+    <div id="container"></div>
+
+    <script src="transformations.js"></script>
+    <script>
+        // Load the configuration
+        fetch('highchart.json')
+            .then(response => response.json())
+            .then(config => {
+                window.chartConfig = config;
+                updateChart();  // Only call updateChart once after config is loaded
+            });
+
+        function generateSampleData() {
+            // Generate sample production data
+            const df_1 = [];
+            const now = new Date();
+            const timeRangeMonths = parseInt(document.getElementById('timeRange').value);
+            const startTime = new Date(now);
+            startTime.setMonth(now.getMonth() - timeRangeMonths);
+            
+            const timeSpan = now.getTime() - startTime.getTime();
+            const timeStep = timeSpan / 100;  // 100 data points
+            
+            // Generate sample tags
+            const tags = ['tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6', 'tag7'];
+            
+            for (let i = 0; i < 100; i++) {
+                const timestamp = new Date(now.getTime() - (i * timeStep));
+                const row = {
+                    BATCH: `BATCH${i}`,
+                    minute_level: timestamp,
+                    Running_Wet_Density: Math.random() * 10 + 90
+                };
+                
+                // Add tag values
+                tags.forEach(tag => {
+                    row[tag] = Math.random() * 5;
+                });
+                
+                df_1.push(row);
+            }
+
+            // Generate sample alertman data with recommendation batches
+            const df_2 = [
+                { decision: 'accept', tag: 'tag1', state__extra__batch_id: 'BATCH5' },
+                { decision: 'accept', tag: 'tag2', state__extra__batch_id: 'BATCH5' },
+                { decision: 'accept', tag: 'tag3', state__extra__batch_id: 'BATCH5' },
+                { decision: 'accept', tag: 'tag1', state__extra__batch_id: 'BATCH25' },
+                { decision: 'accept', tag: 'tag2', state__extra__batch_id: 'BATCH25' },
+                { decision: 'accept', tag: 'tag3', state__extra__batch_id: 'BATCH25' },
+                { decision: 'accept', tag: 'tag1', state__extra__batch_id: 'BATCH50' },
+                { decision: 'accept', tag: 'tag2', state__extra__batch_id: 'BATCH50' },
+                { decision: 'accept', tag: 'tag3', state__extra__batch_id: 'BATCH50' }
+            ];
+
+            return { df_1, df_2 };
+        }
+
+        function getColor(deviation, minDeviation, maxDeviation) {
+            if (deviation === 0) return '#00CC00';  // Green for recommendation
+            if (deviation === -1) return 'rgba(128, 128, 128, 0.5)';  // Gray for no reference
+            
+            // Scale the deviation to be between 0 and 1 based on min and max values
+            const normalizedDeviation = (deviation - minDeviation) / (maxDeviation - minDeviation);
+            
+            // Calculate color based on normalized deviation
+            const r = 255;
+            const g = Math.max(0, Math.min(255, Math.floor(255 * (1 - normalizedDeviation))));
+            const b = Math.max(0, Math.min(255, Math.floor(255 * (1 - normalizedDeviation))));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function renderChart(productionData, alertmanData) {
+            const targetVariable = document.getElementById('targetVariable').value;
+            
+            // Process the data using our transformation
+            const processedData = processData(productionData, alertmanData, targetVariable);
+            console.log(processedData);
+            
+            // Find min and max deviations for color scaling
+            const deviationValues = processedData
+                .filter(d => d.deviation_info && d.deviation_info.total_deviation >= 0)
+                .map(d => d.deviation_info.total_deviation);
+            const minDeviation = Math.min(...deviationValues) || 0;
+            const maxDeviation = Math.max(...deviationValues) || 1;
+            
+            // Update the chart config with processed data
+            const config = _.cloneDeep(window.chartConfig);
+            
+            // Update y-axis configuration
+            config.yAxis = {
+                ...config.yAxis,
+                opposite: false,  // Move axis to left side
+                title: {
+                    text: targetVariable.replace(/_/g, ' '),  // Replace underscores with spaces
+                    style: {
+                        color: '#ffffff'
+                    }
+                }
+            };
+            
+            // Configure color axis with dynamic range
+            config.colorAxis = {
+                min: minDeviation,
+                max: maxDeviation,
+                stops: [
+                    [0, '#ffcccc'],      // Very light red for minimum deviation
+                    [0.25, '#ff9999'],   // Light red
+                    [0.5, '#ff6666'],    // Medium red
+                    [0.75, '#ff3333'],   // Dark red
+                    [1, '#cc0000']       // Very dark red for maximum deviation
+                ],
+                minColor: '#ffcccc',
+                maxColor: '#cc0000'
+            };
+            
+            // Add tooltip formatter
+            config.tooltip = {
+                useHTML: true,
+                formatter: function() {
+                    const point = this.point;
+                    const deviationInfo = point.deviation_info || {};
+                    const deviations = deviationInfo.deviations || [];
+                    
+                    let devsHtml = '';
+                    if (deviations.length > 0) {
+                        devsHtml = '<div class="tooltip-section"><b>Variable Deviations:</b><br/>' +
+                            deviations.map(d => {
+                                return `<div class="deviation-row">
+                                    <span class="tooltip-label">${d.variable.replace(/_/g, ' ')}:</span>
+                                    <span class="deviation-percent">${d.percent.toFixed(1)}%</span>
+                                </div>`;
+                            }).join('') + '</div>';
+                    }
+
+                    return `<div class="tooltip-container">
+                        <div class="tooltip-header">
+                            ${Highcharts.dateFormat('%Y-%m-%d', point.x)}
+                        </div>
+                        <div class="tooltip-content">
+                            <div class="tooltip-section">
+                                <span class="tooltip-label">${targetVariable}:</span>
+                                <span class="tooltip-value">${point.y.toFixed(2)}</span>
+                            </div>
+                            ${deviationInfo.total_deviation !== undefined ? `
+                            <div class="tooltip-section">
+                                <span class="tooltip-label">Total Deviation:</span>
+                                <span class="tooltip-value" style="color: ${
+                                    getColor(deviationInfo.total_deviation, minDeviation, maxDeviation)
+                                }">${deviationInfo.deviation_percent.toFixed(1)}%</span>
+                            </div>` : ''}
+                            ${devsHtml}
+                            <div class="tooltip-section" style="margin-top: 10px; border-top: 1px solid #444; padding-top: 8px;">
+                                <span class="tooltip-label">Batch:</span>
+                                <span class="tooltip-value">${point.batch}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                }
+            };
+            
+            // Replace the string expressions with actual data
+            config.series = config.series.map(series => {
+                if (typeof series.data === 'string') {
+                    // Evaluate the data expression with min/max deviation values
+                    const dataFunc = new Function(
+                        'processedData', 
+                        'targetVariable', 
+                        '_', 
+                        'getColor',
+                        'minDeviation',
+                        'maxDeviation',
+                        `return ${series.data.replace(/getColor\((.*?)\)/g, 'getColor($1, minDeviation, maxDeviation)')}`
+                    );
+                    series.data = dataFunc(processedData, targetVariable, _, getColor, minDeviation, maxDeviation);
+                }
+                
+                // Ensure proper color mapping for scatter points
+                if (series.type === 'scatter') {
+                    series.data = series.data.map(point => ({
+                        ...point,
+                        color: point.color || getColor(point.deviation_info?.total_deviation || 0, minDeviation, maxDeviation)
+                    }));
+                }
+                
+                return series;
+            });
+
+            // Set dynamic title
+            config.title.text = `${targetVariable} Over Time with Normalized Deviation from Recommendations`;
+            // save config in a json file
+            // Save config to localStorage instead of filesystem since we're in browser
+            console.log(config);
+            // Create the chart
+            Highcharts.stockChart('container', config);
+        }
+
+        async function updateChart() {
+            const site = document.getElementById('site').value;
+            const line = document.getElementById('line').value;
+            const partFamily = document.getElementById('partFamily').value;
+            const targetVariable = document.getElementById('targetVariable').value;
+            const timeRange = document.getElementById('timeRange').value;
+
+            try {
+                const response = await fetch('http://localhost:5001/api/data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'include',
+                    mode: 'cors',
+                    body: JSON.stringify({
+                        site,
+                        line,
+                        partFamily,
+                        timeRange
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                renderChart(data.production_data, data.alertman_data);
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                console.log('Falling back to sample data');
+                const sampleData = generateSampleData();
+                renderChart(sampleData.df_1, sampleData.df_2);
+            }
+        }
+    </script>
+</body>
+</html> 

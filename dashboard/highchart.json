@@ -1,0 +1,201 @@
+{
+  "chart": {
+    "type": "scatter",
+    "zoomType": "xy",
+    "backgroundColor": "#2a2a2b",
+    "height": 600
+  },
+  "title": {
+    "text": "${targetVariable} Over Time with Normalized Deviation from Recommendations",
+    "style": {
+      "color": "#ffffff"
+    }
+  },
+  "xAxis": {
+    "type": "datetime",
+    "title": {
+      "text": "Batch Start Date",
+      "style": {
+        "color": "#ffffff"
+      }
+    },
+    "gridLineColor": "rgba(255, 255, 255, 0.1)",
+    "labels": {
+      "style": {
+        "color": "#ffffff"
+      }
+    }
+  },
+  "yAxis": {
+    "title": {
+      "text": "${targetVariable}",
+      "style": {
+        "color": "#ffffff"
+      }
+    },
+    "gridLineColor": "rgba(255, 255, 255, 0.1)",
+    "labels": {
+      "style": {
+        "color": "#ffffff"
+      }
+    }
+  },
+  "legend": {
+    "enabled": true,
+    "align": "center",
+    "verticalAlign": "top",
+    "layout": "horizontal",
+    "itemStyle": {
+      "color": "#ffffff"
+    }
+  },
+  "tooltip": {
+    "useHTML": true
+  },
+  "plotOptions": {
+    "scatter": {
+      "marker": {
+        "radius": 6,
+        "states": {
+          "hover": {
+            "enabled": true,
+            "lineColor": "rgb(100,100,100)"
+          }
+        }
+      },
+      "states": {
+        "hover": {
+          "marker": {
+            "enabled": false
+          }
+        }
+      }
+    },
+    "series": {
+      "animation": false,
+      "turboThreshold": 0,
+      "stickyTracking": false
+    }
+  },
+  "series": [
+    {
+      "name": "Connecting Line",
+      "type": "line",
+      "color": "rgba(255, 255, 255, 0.2)",
+      "lineWidth": 1,
+      "enableMouseTracking": false,
+      "showInLegend": false,
+      "data": "_.orderBy(processedData, 'BATCHSTART').map(d => [new Date(d.BATCHSTART).getTime(), d[targetVariable]])"
+    },
+    {
+      "name": "Deviation from Recommendation",
+      "data": "processedData.filter(d => d.deviation_info && d.deviation_info.total_deviation >= 0).map(d => ({ x: new Date(d.BATCHSTART).getTime(), y: d[targetVariable], deviation_info: d.deviation_info, batch: d.BATCH, marker: { fillColor: getColor(d.deviation_info.total_deviation) } }))",
+      "marker": {
+        "symbol": "circle",
+        "radius": 6,
+        "lineWidth": 1,
+        "lineColor": "#ffffff"
+      }
+    },
+    {
+      "name": "No Recommendation Reference",
+      "color": "rgba(128, 128, 128, 0.5)",
+      "data": "processedData.filter(d => !d.deviation_info || d.deviation_info.total_deviation === -1).map(d => ({ x: new Date(d.BATCHSTART).getTime(), y: d[targetVariable], deviation_info: d.deviation_info || {}, batch: d.BATCH }))",
+      "marker": {
+        "symbol": "circle",
+        "radius": 6,
+        "lineWidth": 1,
+        "lineColor": "#ffffff"
+      }
+    },
+    {
+      "name": "Recommendation Batch",
+      "color": "#00CC00",
+      "data": "processedData.filter(d => d.deviation_info && d.deviation_info.total_deviation === 0).map(d => ({ x: new Date(d.BATCHSTART).getTime(), y: d[targetVariable], deviation_info: d.deviation_info, batch: d.BATCH }))",
+      "marker": {
+        "symbol": "circle",
+        "radius": 8,
+        "lineWidth": 1,
+        "lineColor": "#ffffff"
+      }
+    }
+  ],
+  "rangeSelector": {
+    "enabled": true,
+    "buttonTheme": {
+      "fill": "#4a819e",
+      "stroke": "#3a617e",
+      "style": {
+        "color": "#ffffff"
+      },
+      "states": {
+        "hover": {
+          "fill": "#5891ae"
+        },
+        "select": {
+          "fill": "#3a617e",
+          "style": {
+            "color": "#ffffff"
+          }
+        }
+      }
+    },
+    "inputStyle": {
+      "color": "#ffffff",
+      "backgroundColor": "#3a3a3b"
+    },
+    "labelStyle": {
+      "color": "#ffffff"
+    }
+  },
+  "navigator": {
+    "enabled": true,
+    "series": {
+      "color": "#4a819e"
+    },
+    "xAxis": {
+      "labels": {
+        "style": {
+          "color": "#ffffff"
+        }
+      }
+    },
+    "yAxis": {
+      "min": 0,
+      "maxRange": 100
+    }
+  },
+  "scrollbar": {
+    "enabled": true,
+    "barBackgroundColor": "#4a819e",
+    "barBorderColor": "#3a617e",
+    "buttonBackgroundColor": "#4a819e",
+    "buttonBorderColor": "#3a617e",
+    "trackBackgroundColor": "#2a2a2b",
+    "trackBorderColor": "#3a3a3b"
+  },
+  "verticalScrollbar": {
+    "enabled": true,
+    "barBackgroundColor": "#4a819e",
+    "barBorderColor": "#3a617e",
+    "buttonBackgroundColor": "#4a819e",
+    "buttonBorderColor": "#3a617e",
+    "trackBackgroundColor": "#2a2a2b",
+    "trackBorderColor": "#3a3a3b"
+  },
+  "colorAxis": {
+    "min": 0,
+    "max": 1,
+    "stops": [
+      [0, "#cc0000"],
+      [0.2, "#ff0000"],
+      [0.4, "#ff3333"],
+      [0.6, "#ff6666"],
+      [0.8, "#ff9999"],
+      [1, "#ffcccc"]
+    ]
+  },
+  "transformations": {
+    "processedData": "processData(df_1, df_2, targetVariable)"
+  }
+}

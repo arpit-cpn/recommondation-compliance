@@ -1,0 +1,28 @@
+ARG BASEIMAGE=node:22.12.0-alpine
+
+FROM ${BASEIMAGE} AS ui-builder
+WORKDIR /root
+COPY ui/index.html ui/eslint.config.js ui/package.json ui/package-lock.json ui/vite.config.js /root/
+COPY ui/src /root/src/
+COPY ui/public /root/public/
+RUN npm install && npm run build
+
+FROM ${BASEIMAGE}
+ARG is_released=false
+LABEL organization="cpnet"
+LABEL maintainer="Weihong Guan <weihong.guan@cpnet.io>"
+
+RUN mkdir -p /root/app/config /root/usr/
+
+WORKDIR /root/app
+
+COPY api-fastify/config/production.cjs /root/app/config/
+COPY api-fastify/package.json api-fastify/package-lock.json api-fastify/RELEASES.md api-fastify/.env /root/app/
+COPY api-fastify/src /root/app/dist
+
+COPY --from=ui-builder /root/dist /root/app/public/
+
+RUN npm install -g json; if [ $is_released = true ]; then npm run go-release; else npm run go-develop; fi; npm run refresh-build; npm uninstall -g json; npm install --omit=dev; npm cache clean --force
+
+ENV NODE_ENV=production
+CMD ["node", "./dist/index.js"]
