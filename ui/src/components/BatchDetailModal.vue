@@ -116,7 +116,8 @@ export default defineComponent({
     },
     batchId: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
     },
     loading: {
       type: Boolean,
@@ -124,7 +125,8 @@ export default defineComponent({
     },
     data: {
       type: Array,
-      required: true,
+      required: false,
+      default: null,
     },
     variableStats: {
       type: Object,
