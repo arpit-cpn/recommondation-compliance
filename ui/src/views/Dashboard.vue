@@ -298,34 +298,110 @@ export default defineComponent({
 
     // Watch for theme changes
     watch(() => theme.current.value.dark, (isDark) => {
-      // Store the current chart data before re-rendering
-      const chart = Highcharts.charts[0];
-      if (chart && chart.series[0]) {
-        const currentData = chart.series[0].options.data;
-        const currentVariable = chart.series[0].name;
-        const processedData = currentData.map(point => ({
-          BATCHSTART: new Date(point.x),
-          [currentVariable]: point.y,
-          BATCH: point.batch,
-          deviation_info: point.deviation_info || {},
-          color: point.color,
-        }));
+      // Get current chart
+      const chart = Highcharts.charts.find(c => c && c.renderTo === chartContainer.value);
 
-        // Preserve the current zoom level and selected range
-        const extremes = chart.xAxis[0].getExtremes();
-        const selectedButton = chart.rangeSelector.selected;
+      if (chart) {
+        // Store original dimensions
+        const originalWidth = chart.chartWidth;
+        const originalHeight = chart.chartHeight;
+        const originalContainer = chart.container;
 
-        // Re-render the chart with preserved data and state
-        renderChart(processedData, currentVariable, isDark);
+        // Basic color variables
+        const textColor = isDark ? '#E0E0E0' : '#2c3e50';
+        const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
+        const gridColor = isDark ? '#333333' : '#ebeef5';
+        const borderColor = isDark ? '#333333' : '#dcdfe6';
+        const tooltipBackgroundColor = isDark ? "rgba(40, 40, 40, 0.7)" : "rgba(255, 255, 255, 0.7)";
+        const tooltipBorderColor = isDark ? "rgba(70, 70, 70, 0.5)" : "rgba(200, 200, 200, 0.5)";
+        const tooltipTextColor = isDark ? "#E0E0E0" : "#333333";
 
-        // Restore the zoom level and range selection after a short delay
+        // Hide any visible tooltips before theme update
+        chart.tooltip.hide();
+
+        // Update ONLY theme colors - no layout properties
+        chart.update({
+          chart: {
+            backgroundColor: backgroundColor,
+          },
+          title: {
+            style: {
+              color: textColor,
+            },
+          },
+          xAxis: {
+            labels: {
+              style: {
+                color: textColor,
+              },
+            },
+            lineColor: borderColor,
+            tickColor: borderColor,
+            gridLineColor: gridColor,
+          },
+          yAxis: {
+            labels: {
+              style: {
+                color: textColor,
+              },
+            },
+            title: {
+              style: {
+                color: textColor,
+              },
+            },
+            gridLineColor: gridColor,
+          },
+          legend: {
+            itemStyle: {
+              color: textColor,
+            },
+          },
+          tooltip: {
+            backgroundColor: tooltipBackgroundColor,
+            borderColor: tooltipBorderColor,
+            style: {
+              color: tooltipTextColor,
+            },
+          },
+        }, false);  // false = don't redraw yet
+
+        // Restore original dimensions
+        if (originalContainer) {
+          originalContainer.style.width = `${originalWidth}px`;
+          originalContainer.style.height = `${originalHeight}px`;
+        }
+
+        // Force the chart to be exactly the specified dimensions
+        chart.setSize(originalWidth, originalHeight, false);
+
+        // Now redraw with the correct dimensions
+        chart.redraw();
+
+        // Update CSS tooltips
+        document.documentElement.classList.toggle('tooltip-theme-update', true);
         setTimeout(() => {
-          const newChart = Highcharts.charts[0];
-          if (newChart) {
-            newChart.xAxis[0].setExtremes(extremes.min, extremes.max, true, false);
-            newChart.rangeSelector.clickButton(selectedButton, {}, true);
+          document.documentElement.classList.toggle('tooltip-theme-update', false);
+        }, 10);
+
+        // Double-check dimensions after all updates
+        setTimeout(() => {
+          if (chart && chart.chartWidth !== originalWidth || chart.chartHeight !== originalHeight) {
+            chart.setSize(originalWidth, originalHeight);
           }
         }, 100);
+      } else if (chartContainer.value) {
+        // Handle other UI elements that might be showing
+        if (chartContainer.value.querySelector('.initial-message')) {
+          const messageEl = chartContainer.value.querySelector('.initial-message');
+          messageEl.style.color = isDark ? '#E0E0E0' : '#2c3e50';
+        } else if (chartContainer.value.querySelector('.no-data-message')) {
+          const messageEl = chartContainer.value.querySelector('.no-data-message');
+          messageEl.style.color = isDark ? '#E0E0E0' : '#2c3e50';
+        } else if (chartContainer.value.querySelector('.error-message')) {
+          const messageEl = chartContainer.value.querySelector('.error-message');
+          messageEl.style.color = isDark ? '#ff6b6b' : '#f56c6c';
+        }
       }
     });
 
@@ -369,7 +445,9 @@ export default defineComponent({
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
       const gridColor = isDark ? '#333333' : '#ebeef5';
       const borderColor = isDark ? '#333333' : '#dcdfe6';
-      const tooltipBackgroundColor = isDark ? '#2D2D2D' : '#ffffff';
+      const tooltipBackgroundColor = isDark ? "rgba(40, 40, 40, 0.7)" : "rgba(255, 255, 255, 0.7)";
+      const tooltipBorderColor = isDark ? "rgba(70, 70, 70, 0.5)" : "rgba(200, 200, 200, 0.5)";
+      const tooltipTextColor = isDark ? "#E0E0E0" : "#333333";
 
       // Find min and max deviations for color scaling
       const deviationValues = processedData
@@ -386,6 +464,9 @@ export default defineComponent({
             fontFamily: "'Avenir', Helvetica, Arial, sans-serif",
             color: textColor,
           },
+          height: 600,
+          width: null, // Auto width based on container
+          animation: false, // Disable animations to prevent sizing issues
           accessibility: {
             enabled: true,
             description: `Time series chart showing ${targetVariable.replace(/_/g, ' ')} values over time with deviation indicators`,
@@ -538,9 +619,13 @@ export default defineComponent({
         },
         tooltip: {
           backgroundColor: tooltipBackgroundColor,
-          borderColor: borderColor,
+          borderColor: tooltipBorderColor,
+          borderRadius: 8,
+          borderWidth: 1,
+          shadow: true,
           style: {
-            color: textColor,
+            color: tooltipTextColor,
+            fontSize: "12px",
           },
           useHTML: true,
           formatter: function() {
@@ -559,11 +644,11 @@ export default defineComponent({
                 }).join('') + '</div>';
             }
 
-            return `<div class="tooltip-container" style="background: ${tooltipBackgroundColor}; border-color: ${borderColor};">
-              <div class="tooltip-header" style="color: ${textColor}; border-color: ${borderColor};">
+            return `<div class="tooltip-container">
+              <div class="tooltip-header">
                 ${Highcharts.dateFormat('%Y-%m-%d', point.x)}
               </div>
-              <div class="tooltip-content" style="color: ${textColor};">
+              <div class="tooltip-content">
                 <div class="tooltip-section">
                   <span class="tooltip-label">${targetVariable}:</span>
                   <span class="tooltip-value">${point.y.toFixed(2)}</span>
@@ -576,7 +661,7 @@ export default defineComponent({
                   }">${deviationInfo.deviation_percent.toFixed(1)}%</span>
                 </div>` : ''}
                 ${devsHtml}
-                <div class="tooltip-section" style="margin-top: 10px; border-top: 1px solid ${borderColor}; padding-top: 8px;">
+                <div class="tooltip-section tooltip-batch">
                   <span class="tooltip-label">Batch:</span>
                   <span class="tooltip-value">${point.batch}</span>
                 </div>
@@ -967,9 +1052,13 @@ export default defineComponent({
 
 #container {
   min-width: 310px;
-  height: 600px;
+  width: 100% !important;
+  height: 600px !important; /* Force fixed height */
+  min-height: 600px !important;
   margin: 0 auto;
   font-size: 14px;
+  position: relative;
+  overflow: visible;
 }
 
 .controls {
@@ -1084,41 +1173,42 @@ export default defineComponent({
 
 <style>
 /* Global styles for Highcharts tooltips */
+.tooltip-theme-update .tooltip-container,
 .tooltip-container {
-  background: v-bind('backgroundColor');
-  border: 1px solid v-bind('borderColor');
-  border-radius: 6px;
-  padding: 12px;
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  box-shadow: 0 2px 12px v-bind('shadowColor');
-  min-width: 280px;
+  background-color: v-bind('theme.current.value.dark ? "rgba(40, 40, 40, 0.7)" : "rgba(255, 255, 255, 0.7)"') !important;
+  border: 1px solid v-bind('theme.current.value.dark ? "rgba(70, 70, 70, 0.5)" : "rgba(200, 200, 200, 0.5)"') !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+  font-family: 'Avenir', Helvetica, Arial, sans-serif !important;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3) !important;
+  min-width: 280px !important;
+  font-size: 12px !important;
 }
 
+.tooltip-theme-update .tooltip-header,
 .tooltip-header {
-  font-size: 16px;
-  color: v-bind('textColor');
-  margin-bottom: 10px;
-  border-bottom: 1px solid v-bind('borderColor');
-  padding-bottom: 6px;
-  font-weight: bold;
+  font-size: 14px !important;
+  color: v-bind('theme.current.value.dark ? "#E0E0E0" : "#333333"') !important;
+  margin-bottom: 10px !important;
+  border-bottom: 1px solid v-bind('theme.current.value.dark ? "rgba(70, 70, 70, 0.5)" : "rgba(200, 200, 200, 0.5)"') !important;
+  padding-bottom: 6px !important;
+  font-weight: bold !important;
 }
 
+.tooltip-theme-update .tooltip-content,
 .tooltip-content {
-  font-size: 13px;
-  color: v-bind('textColor');
+  font-size: 12px !important;
+  color: v-bind('theme.current.value.dark ? "#E0E0E0" : "#333333"') !important;
 }
 
-.tooltip-section {
-  margin: 8px 0;
-  line-height: 1.4;
-}
-
+.tooltip-theme-update .tooltip-label,
 .tooltip-label {
-  color: v-bind('theme.current.value.dark ? "#909399" : "#909399"');
+  color: v-bind('theme.current.value.dark ? "#E0E0E0" : "#333333"') !important;
 }
 
+.tooltip-theme-update .tooltip-value,
 .tooltip-value {
-  color: v-bind('textColor');
+  color: v-bind('theme.current.value.dark ? "#E0E0E0" : "#333333"') !important;
 }
 
 .deviation-bar {
@@ -1148,5 +1238,23 @@ export default defineComponent({
   color: #f56c6c;
   font-weight: bold;
   margin-left: 10px;
+}
+
+.tooltip-theme-update .tooltip-batch,
+.tooltip-batch {
+  margin-top: 10px !important;
+  border-top: 1px solid v-bind('theme.current.value.dark ? "rgba(70, 70, 70, 0.5)" : "rgba(200, 200, 200, 0.5)"') !important;
+  padding-top: 8px !important;
+}
+
+.tooltip-theme-update .tooltip-section,
+.tooltip-section {
+  margin: 8px 0 !important;
+  line-height: 1.4 !important;
+}
+
+.tooltip-theme-update .tooltip-label,
+.tooltip-label {
+  color: v-bind('theme.current.value.dark ? "#E0E0E0" : "#333333"') !important;
 }
 </style>

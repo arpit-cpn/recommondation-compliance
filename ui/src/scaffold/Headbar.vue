@@ -51,7 +51,7 @@ const switchOrg = (org) => {
       <div class="d-flex justify-start pl-0">
         <v-app-bar-nav-icon class="align-self-center" @click="drawer = !drawer" v-if="keycloakStore.isActive" />
         <a href="/">
-          <img src="/Dark_Color_Logo.png" height="32" position="left" class="me-auto mt-2">
+          <img :src="theme.global.current.value.dark ? '/White_Color_Logo.png' : '/Dark_Color_Logo.png'" height="32" position="left" class="me-auto mt-2">
         </a>
       </div>
     </v-app-bar-title>
