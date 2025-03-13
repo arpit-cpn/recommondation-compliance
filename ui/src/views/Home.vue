@@ -1,9 +1,13 @@
 <script setup>
 import _ from 'lodash';
+import { onMounted } from 'vue';
 import Fetcher from '../Fetcher';
 import useKeycloakStore from '../stores/keycloak';
+import useNexusStore from '../stores/nexus';
+import router from '../router';
 
 const keycloakStore = useKeycloakStore();
+const nexusStore = useNexusStore();
 
 const http = new Fetcher('api/', async (options) => {
   await keycloakStore.ensureAccessToken();
@@ -17,6 +21,13 @@ const fetchMe = () => {
 const fetchRoles = () => {
   http.get('me/roles');
 };
+
+onMounted(() => {
+  if (keycloakStore.isActive && _.findIndex(nexusStore.orgs, { code: nexusStore.currentOrg }) > -1) {
+    console.log('Pushing to dashboard');
+    router.push({ name: 'dashboard', params: { org: nexusStore.currentOrg } });
+  }
+});
 
 </script>
 
