@@ -103,6 +103,15 @@
               <v-tabs v-model="activeChartTab">
                 <v-tab value="analysis">Analysis</v-tab>
                 <v-tab value="correlation">Correlation</v-tab>
+                <v-switch
+                  v-model="showDowntime"
+                  label="Show Downtime"
+                  hide-details
+                  density="compact"
+                  color="primary"
+                  class="ma-0 pa-0 ms-auto"
+                  style="margin-right: 8px"
+                />
               </v-tabs>
 
               <v-window v-model="activeChartTab">
@@ -257,6 +266,7 @@ export default defineComponent({
     const selectedVariable = ref(props.targetVariable);
     const showCorrelationMatrix = ref(false);
     const activeChartTab = ref('analysis');
+    const showDowntime = ref(true);
     let charts = {
       timeSeries: null,
       kde: null,
@@ -316,6 +326,17 @@ export default defineComponent({
         });
       }
     }, { deep: true });
+
+    // Watch for showDowntime changes
+    watch(showDowntime, () => {
+      nextTick(() => {
+        if (activeChartTab.value === 'analysis') {
+          updateAnalysisCharts();
+        } else if (activeChartTab.value === 'correlation') {
+          updateCorrelationTimeSeries();
+        }
+      });
+    });
 
     // Computed property to sort variables by interest
     const sortedVariables = computed(() => {
@@ -475,12 +496,45 @@ export default defineComponent({
       const gridColor = isDark ? '#333333' : '#ebeef5';
 
       // Prepare time series data
+      const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
+
+      // First find all transition points
+      const transitions = [];
+      props.data.forEach((item, index) => {
+        if (index > 0) {
+          const prevState = props.data[index - 1].run_state;
+          const currentState = item.run_state;
+          if (prevState !== currentState) {
+            transitions.push(new Date(item.DateTime).getTime());
+          }
+        }
+      });
+
+      // Filter data points
       const timeSeriesData = props.data
-        .map(item => [
-          new Date(item.DateTime).getTime(),
-          item[selectedVariable.value],
-        ])
-        .filter(point => point[1] !== null);
+        .filter(item => {
+          if (!showDowntime.value && item.run_state !== 'Uptime') return false;
+
+          // Check if point is within 2 minutes of any transition
+          const itemTime = new Date(item.DateTime).getTime();
+          const isNearTransition = transitions.some(transitionTime =>
+            Math.abs(itemTime - transitionTime) <= TWO_MINUTES,
+          );
+
+          return !isNearTransition;
+        })
+        .map(item => {
+          const time = new Date(item.DateTime).getTime();
+          const value = item[selectedVariable.value];
+          const runState = item.run_state;
+
+          return {
+            x: time,
+            y: value,
+            runState: runState,
+          };
+        })
+        .filter(point => point.y !== null);
 
       // length of timeSeriesData
       console.log(timeSeriesData.length);
@@ -570,6 +624,7 @@ export default defineComponent({
                 lineWidth: 2,
               },
             },
+            connectNulls: false,
           }],
           credits: { enabled: false },
           legend: {
@@ -587,7 +642,7 @@ export default defineComponent({
 
       // Update or create KDE plot
       if (kdePlot.value) {
-        const values = timeSeriesData.map(point => point[1]);
+        const values = timeSeriesData.map(point => point.y);
         const kde = calculateKDE(values);
 
         if (charts.kde) {
@@ -676,9 +731,105 @@ export default defineComponent({
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
       const gridColor = isDark ? '#333333' : '#ebeef5';
 
-      // Get correlation data for selected variable
+      // If selected variable is target variable, show heatmap
+      if (selectedVariable.value === props.targetVariable) {
+        if (charts.correlation) {
+          charts.correlation.destroy();
+        }
+
+        // Prepare heatmap data
+        const variables = Object.keys(props.variableStats).filter(v => v !== props.targetVariable);
+        const heatmapData = variables.map((variable, i) => {
+          const stats = props.variableStats[variable];
+          return [0, i, stats?.correlation || 0];
+        });
+
+        charts.correlation = Highcharts.chart(correlationTimeSeries.value, {
+          chart: {
+            type: 'heatmap',
+            backgroundColor: backgroundColor,
+            height: 400,
+            marginTop: 10,
+            marginBottom: 80,
+            marginRight: 20,
+            marginLeft: 200,
+            spacingBottom: 0,
+            spacingTop: 0,
+          },
+          title: {
+            text: null,
+          },
+          xAxis: {
+            visible: false,
+            min: -0.5,
+            max: 0.5,
+          },
+          yAxis: {
+            categories: variables.map(formatVariableName),
+            title: null,
+            labels: {
+              style: { color: textColor },
+            },
+          },
+          colorAxis: {
+            stops: [
+              [0, '#ef5350'],    // Strong negative - red
+              [0.2, '#ff8a65'],  // Moderate negative - light red
+              [0.4, '#ffcc80'],  // Weak negative - orange
+              [0.6, '#a5d6a7'],  // Weak positive - light green
+              [0.8, '#66bb6a'],  // Moderate positive - green
+              [1, '#43a047'],    // Strong positive - dark green
+            ],
+            min: -1,
+            max: 1,
+          },
+          legend: {
+            align: 'center',
+            layout: 'horizontal',
+            verticalAlign: 'bottom',
+            symbolWidth: 300,
+            symbolHeight: 12,
+            margin: 24,
+            y: 15,
+            title: {
+              text: 'Correlation Scale',
+              style: { color: textColor },
+            },
+          },
+          tooltip: {
+            formatter: function() {
+              const variable = variables[this.point.y];
+              const correlation = this.point.value.toFixed(3);
+              const stats = props.variableStats[variable];
+              const trend = getTrendLabel(stats);
+              const trendColor = getTrendColor(stats);
+
+              return `<b>${formatVariableName(variable)}</b><br/>
+                     <b>Correlation:</b> ${correlation}<br/>
+                     <b>Trend:</b> <span style="color: ${trendColor === 'success' ? '#4CAF50' : trendColor === 'error' ? '#F44336' : '#2196F3'}">${trend}</span>`;
+            },
+          },
+          series: [{
+            name: 'Correlation with ' + formatVariableName(props.targetVariable),
+            data: heatmapData,
+            dataLabels: {
+              enabled: true,
+              color: textColor,
+              formatter: function() {
+                return this.point.value.toFixed(2);
+              },
+            },
+          }],
+          credits: { enabled: false },
+        });
+        return;
+      }
+
+      // Regular correlation time series code for non-target variables
       const correlationData = props.correlationsData[selectedVariable.value] || [];
       console.log(correlationData.length);
+
+      const TWO_MINUTES = 2 * 60 * 1000; // 2 minutes in milliseconds
 
       // Create zones for run states using correlation data
       const zones = [];
@@ -707,18 +858,41 @@ export default defineComponent({
       });
 
       // Process correlation data to include run state
-      const processedData = correlationData.map(point => {
-        const timestamp = point[0];
-        const correlation = point[1];
-        const runState = point[2];
-
-        return {
-          x: timestamp,
-          y: correlation,
-          runState: runState,
-          color: runState === 'Uptime' ? undefined : '#9e9e9e',  // Grey for downtime points
-        };
+      const correlationTransitions = [];
+      correlationData.forEach((point, index) => {
+        if (index > 0) {
+          const prevState = correlationData[index - 1][2];
+          const currentState = point[2];
+          if (prevState !== currentState) {
+            correlationTransitions.push(point[0]);
+          }
+        }
       });
+
+      const processedData = correlationData
+        .filter(point => {
+          if (!showDowntime.value && point[2] !== 'Uptime') return false;
+
+          // Check if point is within 2 minutes of any transition
+          const pointTime = point[0];
+          const isNearTransition = correlationTransitions.some(transitionTime =>
+            Math.abs(pointTime - transitionTime) <= TWO_MINUTES,
+          );
+
+          return !isNearTransition;
+        })
+        .map(point => {
+          const timestamp = point[0];
+          const correlation = point[1];
+          const runState = point[2];
+
+          return {
+            x: timestamp,
+            y: correlation,
+            runState: runState,
+            color: runState === 'Uptime' ? undefined : '#9e9e9e',
+          };
+        });
 
       if (charts.correlation) {
         charts.correlation.destroy();
@@ -849,6 +1023,7 @@ export default defineComponent({
       theme,
       showCorrelationMatrix,
       activeChartTab,
+      showDowntime,
       updateAnalysisCharts,
       calculateKDE,
       formatVariableName,
