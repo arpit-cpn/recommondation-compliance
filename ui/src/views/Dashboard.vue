@@ -93,6 +93,7 @@
     :data="detailModal.data"
     :variable-stats="detailModal.variableStats"
     :target-variable="filters.targetVariable"
+    :correlations-data="detailModal.correlationsData"
   />
 
   <!-- Error Snackbar -->
@@ -161,6 +162,7 @@ export default defineComponent({
       data: null,
       variableStats: {},
       targetVariable: null,
+      correlationsData: {},
     });
 
     // Error snackbar state
@@ -731,6 +733,8 @@ export default defineComponent({
                   if (response && !response.error) {
                     detailModal.data = response.processed_data;
                     detailModal.variableStats = response.variable_stats;
+                    detailModal.correlationsData = response.correlations_data;
+                    console.log(detailModal.correlationsData);
                   } else {
                     throw new Error(response.error || 'Failed to process batch details');
                   }

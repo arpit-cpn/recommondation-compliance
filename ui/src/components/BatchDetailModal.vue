@@ -34,7 +34,16 @@
           <!-- Left Panel - Variables List -->
           <v-col cols="4" class="variables-panel">
             <v-list density="compact">
-              <v-list-subheader>Variables by Interest</v-list-subheader>
+              <v-list-subheader class="d-flex align-center justify-space-between">
+                <span>Variables by Correlation & Interest</span>
+                <v-btn
+                  icon="mdi-matrix"
+                  size="small"
+                  variant="text"
+                  @click="showCorrelationMatrix = true"
+                  title="Show Correlation Matrix"
+                />
+              </v-list-subheader>
 
               <!-- Target Variable -->
               <v-list-item
@@ -65,12 +74,21 @@
               >
                 <v-list-item-title class="d-flex align-center justify-space-between gap-2">
                   <span class="variable-name">{{ formatVariableName(variable) }}</span>
-                  <v-chip
-                    size="x-small"
-                    :color="getTrendColor(stats)"
-                  >
-                    {{ getTrendLabel(stats) }}
-                  </v-chip>
+                  <div class="d-flex align-center gap-1">
+                    <v-chip
+                      size="x-small"
+                      :color="getCorrelationColor(stats)"
+                      class="correlation-chip"
+                    >
+                      {{ formatCorrelation(stats.correlation) }}
+                    </v-chip>
+                    <v-chip
+                      size="x-small"
+                      :color="getTrendColor(stats)"
+                    >
+                      {{ getTrendLabel(stats) }}
+                    </v-chip>
+                  </div>
                 </v-list-item-title>
                 <v-list-item-subtitle class="variable-stats">
                   {{ formatTrendInfo(stats) }}
@@ -81,28 +99,116 @@
 
           <!-- Right Panel - Charts -->
           <v-col cols="8" class="charts-panel">
-            <!-- Time Series Chart -->
-            <v-card variant="flat" class="mb-4">
-              <v-card-title class="text-subtitle-1">Time Series Analysis</v-card-title>
-              <div ref="timeSeriesChart" class="time-series-chart" />
-            </v-card>
+            <v-card variant="flat" class="h-100">
+              <v-tabs v-model="activeChartTab">
+                <v-tab value="analysis">Analysis</v-tab>
+                <v-tab value="correlation">Correlation</v-tab>
+              </v-tabs>
 
-            <!-- Distribution Plot -->
-            <v-card variant="flat">
-              <v-card-title class="text-subtitle-1">Distribution</v-card-title>
-              <div ref="kdePlot" class="kde-plot" />
+              <v-window v-model="activeChartTab">
+                <!-- Analysis Tab -->
+                <v-window-item value="analysis">
+                  <v-card-text class="pa-2">
+                    <div class="d-flex flex-column gap-2">
+                      <!-- Time Series Chart -->
+                      <v-card variant="flat" class="pa-2">
+                        <div class="d-flex align-center px-2">
+                          <span class="text-subtitle-2">Time Series Analysis</span>
+                        </div>
+                        <div ref="timeSeriesChart" class="time-series-chart" />
+                      </v-card>
+
+                      <!-- Distribution Plot -->
+                      <v-card variant="flat" class="pa-2">
+                        <div class="d-flex align-center px-2">
+                          <span class="text-subtitle-2">Distribution Analysis</span>
+                        </div>
+                        <div ref="kdePlot" class="kde-plot" />
+                      </v-card>
+                    </div>
+                  </v-card-text>
+                </v-window-item>
+
+                <!-- Correlation Tab -->
+                <v-window-item value="correlation">
+                  <v-card-text class="pa-2">
+                    <v-card variant="flat" class="pa-2">
+                      <div class="d-flex align-center px-2">
+                        <span class="text-subtitle-2">Cross-Correlation Analysis</span>
+                      </div>
+                      <div ref="correlationTimeSeries" class="correlation-time-series" />
+                    </v-card>
+                  </v-card-text>
+                </v-window-item>
+              </v-window>
             </v-card>
           </v-col>
         </v-row>
       </v-card-text>
+
+      <!-- Correlation Matrix Dialog -->
+      <v-dialog
+        v-model="showCorrelationMatrix"
+        max-width="900px"
+        class="correlation-dialog"
+      >
+        <v-card>
+          <v-card-title class="d-flex align-center justify-space-between pa-4">
+            <span>Correlation Analysis</span>
+            <v-btn icon="mdi-close" variant="text" @click="showCorrelationMatrix = false" />
+          </v-card-title>
+
+          <v-card-text>
+            <div class="correlation-matrix">
+              <div class="correlation-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Variable</th>
+                      <th>Correlation with {{ formatVariableName(targetVariable) }}</th>
+                      <th>Trend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(stats, variable) in sortedByCorrelation" :key="variable">
+                      <td>{{ formatVariableName(variable) }}</td>
+                      <td>
+                        <div class="d-flex align-center gap-2">
+                          <div
+                            class="correlation-bar"
+                            :style="getCorrelationBarStyle(stats.correlation)"
+                          />
+                          <span>{{ formatCorrelation(stats.correlation) }}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <v-chip
+                          size="x-small"
+                          :color="getTrendColor(stats)"
+                        >
+                          {{ getTrendLabel(stats) }}
+                        </v-chip>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-dialog>
     </v-card>
   </v-dialog>
 </template>
 
 <script>
-import { defineComponent, ref, watch, computed } from 'vue';
+import { defineComponent, ref, watch, computed, nextTick, onMounted } from 'vue';
 import Highcharts from 'highcharts';
+import HighchartsHeatmap from 'highcharts/modules/heatmap';
 import { useTheme } from 'vuetify';
+
+// Initialize Highcharts modules
+HighchartsHeatmap(Highcharts);
 
 export default defineComponent({
   name: 'BatchDetailModal',
@@ -136,13 +242,26 @@ export default defineComponent({
       type: String,
       required: true,
     },
+    correlationsData: {
+      type: Object,
+      required: false,
+      default: () => ({}),
+    },
   },
 
   setup(props) {
     const theme = useTheme();
     const timeSeriesChart = ref(null);
     const kdePlot = ref(null);
+    const correlationTimeSeries = ref(null);
     const selectedVariable = ref(props.targetVariable);
+    const showCorrelationMatrix = ref(false);
+    const activeChartTab = ref('analysis');
+    let charts = {
+      timeSeries: null,
+      kde: null,
+      correlation: null,
+    };
 
     const formatVariableName = (name) => {
       return name.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim();
@@ -156,14 +275,47 @@ export default defineComponent({
     // Watch for data changes
     watch(() => props.data, (newData) => {
       if (newData && timeSeriesChart.value) {
-        updateCharts();
+        updateAnalysisCharts();
       }
     });
 
     // Watch for selected variable changes
     watch(selectedVariable, () => {
-      updateCharts();
+      if (activeChartTab.value === 'analysis') {
+        updateAnalysisCharts();
+      } else if (activeChartTab.value === 'correlation') {
+        updateCorrelationTimeSeries();
+      }
     });
+
+    // Watch for correlation matrix visibility
+    watch(showCorrelationMatrix, (isVisible) => {
+      if (isVisible && activeChartTab.value === 'correlation') {
+        nextTick(() => {
+          updateCorrelationTimeSeries();
+        });
+      }
+    });
+
+    // Watch for tab changes
+    watch(activeChartTab, (newTab) => {
+      nextTick(() => {
+        if (newTab === 'analysis') {
+          updateAnalysisCharts();
+        } else if (newTab === 'correlation') {
+          updateCorrelationTimeSeries();
+        }
+      });
+    }, { immediate: true });
+
+    // Watch for correlationsData changes
+    watch(() => props.correlationsData, (newData) => {
+      if (newData && activeChartTab.value === 'correlation') {
+        nextTick(() => {
+          updateCorrelationTimeSeries();
+        });
+      }
+    }, { deep: true });
 
     // Computed property to sort variables by interest
     const sortedVariables = computed(() => {
@@ -172,10 +324,53 @@ export default defineComponent({
 
       return Object.entries(stats)
         .sort(([, a], [, b]) => {
-          // Sort by absolute trend value (descending)
+          // First sort by correlation magnitude (absolute value, descending)
+          const corrA = Math.abs(a?.correlation || 0);
+          const corrB = Math.abs(b?.correlation || 0);
+          if (Math.abs(corrA - corrB) > 0.001) return corrB - corrA;
+
+          // Then sort by trend status (increasing/decreasing before stable)
           const trendA = Math.abs(a?.trend || 0);
           const trendB = Math.abs(b?.trend || 0);
-          return trendB - trendA;
+          const isStableA = Math.abs(trendA) < 0.05;
+          const isStableB = Math.abs(trendB) < 0.05;
+
+          if (isStableA !== isStableB) {
+            return isStableA ? 1 : -1; // Non-stable (increasing/decreasing) comes first
+          }
+
+          // For variables with same stability status, sort by trend magnitude
+          return Math.abs(trendB) - Math.abs(trendA);
+        })
+        .reduce((acc, [key, value]) => {
+          acc[key] = value;
+          return acc;
+        }, {});
+    });
+
+    const sortedByCorrelation = computed(() => {
+      const stats = { ...props.variableStats };
+      delete stats[props.targetVariable];
+
+      return Object.entries(stats)
+        .sort(([, a], [, b]) => {
+          // First sort by correlation magnitude (absolute value, descending)
+          const corrA = Math.abs(a?.correlation || 0);
+          const corrB = Math.abs(b?.correlation || 0);
+          if (Math.abs(corrA - corrB) > 0.001) return corrB - corrA;
+
+          // Then sort by trend status (increasing/decreasing before stable)
+          const trendA = Math.abs(a?.trend || 0);
+          const trendB = Math.abs(b?.trend || 0);
+          const isStableA = Math.abs(trendA) < 0.05;
+          const isStableB = Math.abs(trendB) < 0.05;
+
+          if (isStableA !== isStableB) {
+            return isStableA ? 1 : -1; // Non-stable (increasing/decreasing) comes first
+          }
+
+          // For variables with same stability status, sort by trend magnitude
+          return Math.abs(trendB) - Math.abs(trendA);
         })
         .reduce((acc, [key, value]) => {
           acc[key] = value;
@@ -203,6 +398,29 @@ export default defineComponent({
       const volatility = (stats.volatility || 0).toFixed(1);
       const mean = (stats.mean || 0).toFixed(2);
       return `Trend: ${trend}/hr • Vol: ${volatility}% • Mean: ${mean}`;
+    };
+
+    const getCorrelationColor = (stats) => {
+      if (!stats?.correlation) return 'grey';
+      const correlation = Math.abs(stats.correlation);
+      if (correlation > 0.7) return 'error';
+      if (correlation > 0.4) return 'warning';
+      return 'info';
+    };
+
+    const formatCorrelation = (correlation) => {
+      if (!correlation) return 'N/A';
+      return correlation.toFixed(2);
+    };
+
+    const getCorrelationBarStyle = (correlation) => {
+      if (!correlation) return { width: '0%' };
+      const width = Math.abs(correlation) * 100;
+      const color = correlation > 0 ? '#4CAF50' : '#F44336';
+      return {
+        width: `${width}%`,
+        backgroundColor: color,
+      };
     };
 
     const updateChartTheme = (isDark) => {
@@ -249,7 +467,7 @@ export default defineComponent({
       }
     };
 
-    const updateCharts = () => {
+    const updateAnalysisCharts = () => {
       if (!props.data || !selectedVariable.value) return;
 
       const isDark = theme.current.value.dark;
@@ -257,11 +475,13 @@ export default defineComponent({
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
       const gridColor = isDark ? '#333333' : '#ebeef5';
 
-      // Prepare time series data and run state zones
-      const timeSeriesData = props.data.map(item => [
-        new Date(item.DateTime).getTime(),
-        item[selectedVariable.value],
-      ]).filter(point => point[1] !== null);
+      // Prepare time series data
+      const timeSeriesData = props.data
+        .map(item => [
+          new Date(item.DateTime).getTime(),
+          item[selectedVariable.value],
+        ])
+        .filter(point => point[1] !== null);
 
       // Create zones for run states
       const zones = [];
@@ -282,109 +502,148 @@ export default defineComponent({
           zones.push(currentZone);
         }
 
-        // Handle last point
         if (index === props.data.length - 1) {
           currentZone.end = time;
         }
       });
 
-      // Create time series chart
-      Highcharts.chart(timeSeriesChart.value, {
-        chart: {
-          type: 'line',
-          backgroundColor: backgroundColor,
-          height: 300,
-        },
-        title: {
-          text: `${formatVariableName(selectedVariable.value)} Over Time`,
-          style: { color: textColor },
-        },
-        xAxis: {
-          type: 'datetime',
-          gridLineColor: gridColor,
-          labels: { style: { color: textColor } },
-          plotBands: zones.map(zone => ({
-            from: zone.start,
-            to: zone.end,
-            color: zone.isUptime
-              ? 'rgba(76, 175, 80, 0.1)' // Light green for Uptime
-              : 'rgba(244, 67, 54, 0.1)', // Light red for Downtime
-          })),
-        },
-        yAxis: {
+      // Update or create time series chart
+      if (timeSeriesChart.value) {
+        if (charts.timeSeries) {
+          charts.timeSeries.destroy();
+        }
+        charts.timeSeries = Highcharts.chart(timeSeriesChart.value, {
+          chart: {
+            type: 'line',
+            backgroundColor: backgroundColor,
+            height: 260,
+            marginTop: 10,
+            marginBottom: 40,
+            marginRight: 20,
+            marginLeft: 80,
+            spacingBottom: 0,
+            spacingTop: 0,
+          },
           title: {
-            text: formatVariableName(selectedVariable.value),
-            style: { color: textColor },
+            text: null,
           },
-          gridLineColor: gridColor,
-          labels: { style: { color: textColor } },
-        },
-        tooltip: {
-          formatter: function() {
-            const point = this.point;
-            const timestamp = Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', point.x);
-            const value = point.y.toFixed(2);
-            const runState = props.data.find(d => new Date(d.DateTime).getTime() === point.x)?.run_state;
+          xAxis: {
+            type: 'datetime',
+            gridLineColor: gridColor,
+            labels: { style: { color: textColor } },
+            plotBands: zones.map(zone => ({
+              from: zone.start,
+              to: zone.end,
+              color: zone.isUptime
+                ? 'rgba(76, 175, 80, 0.1)' // Light green for Uptime
+                : 'rgba(244, 67, 54, 0.1)', // Light red for Downtime
+            })),
+          },
+          yAxis: {
+            title: {
+              text: formatVariableName(selectedVariable.value),
+              style: { color: textColor },
+            },
+            gridLineColor: gridColor,
+            labels: { style: { color: textColor } },
+          },
+          tooltip: {
+            formatter: function() {
+              const point = this.point;
+              const timestamp = Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', point.x);
+              const value = point.y.toFixed(2);
+              const runState = props.data.find(d => new Date(d.DateTime).getTime() === point.x)?.run_state;
 
-            return `<b>Time:</b> ${timestamp}<br/>
-                    <b>Value:</b> ${value}<br/>
-                    <b>State:</b> <span style="color: ${runState === 'Uptime' ? '#4CAF50' : '#F44336'}">${runState || 'Unknown'}</span>`;
-          },
-        },
-        series: [{
-          name: formatVariableName(selectedVariable.value),
-          data: timeSeriesData,
-          color: '#409eff',
-          states: {
-            hover: {
-              lineWidth: 2,
+              return `<b>Time:</b> ${timestamp}<br/>
+                      <b>Value:</b> ${value}<br/>
+                      <b>State:</b> <span style="color: ${runState === 'Uptime' ? '#4CAF50' : '#F44336'}">${runState || 'Unknown'}</span>`;
             },
           },
-        }],
-        credits: { enabled: false },
-        legend: {
-          enabled: true,
-          align: 'right',
-          verticalAlign: 'top',
-          floating: true,
-          backgroundColor: backgroundColor,
-          itemStyle: {
-            color: textColor,
+          series: [{
+            name: formatVariableName(selectedVariable.value),
+            data: timeSeriesData,
+            color: '#409eff',
+            states: {
+              hover: {
+                lineWidth: 2,
+              },
+            },
+          }],
+          credits: { enabled: false },
+          legend: {
+            enabled: true,
+            align: 'right',
+            verticalAlign: 'top',
+            floating: true,
+            backgroundColor: backgroundColor,
+            itemStyle: {
+              color: textColor,
+            },
           },
-        },
-      });
+        });
+      }
 
-      // Create KDE plot
-      const values = timeSeriesData.map(point => point[1]);
-      const kde = calculateKDE(values);
+      // Update or create KDE plot
+      if (kdePlot.value) {
+        const values = timeSeriesData.map(point => point[1]);
+        const kde = calculateKDE(values);
 
-      Highcharts.chart(kdePlot.value, {
-        chart: {
-          type: 'area',
-          backgroundColor: backgroundColor,
-          height: 200,
-        },
-        title: {
-          text: 'Distribution',
-          style: { color: textColor },
-        },
-        xAxis: {
-          gridLineColor: gridColor,
-          labels: { style: { color: textColor } },
-        },
-        yAxis: {
-          title: { text: 'Density' },
-          gridLineColor: gridColor,
-          labels: { style: { color: textColor } },
-        },
-        series: [{
-          name: 'Density',
-          data: kde,
-          color: '#409eff',
-          fillOpacity: 0.3,
-        }],
-        credits: { enabled: false },
-      });
+        if (charts.kde) {
+          charts.kde.destroy();
+        }
+        charts.kde = Highcharts.chart(kdePlot.value, {
+          chart: {
+            type: 'area',
+            backgroundColor: backgroundColor,
+            height: 180,
+            marginTop: 10,
+            marginBottom: 50,
+            marginRight: 20,
+            marginLeft: 80,
+            spacingBottom: 0,
+            spacingTop: 0,
+          },
+          title: {
+            text: null,
+          },
+          xAxis: {
+            gridLineColor: gridColor,
+            labels: { style: { color: textColor } },
+            title: {
+              text: formatVariableName(selectedVariable.value),
+              style: { color: textColor },
+            },
+          },
+          yAxis: {
+            title: {
+              text: 'Density',
+              style: { color: textColor },
+              margin: 60,
+              rotation: 0,
+              align: 'high',
+              y: -20,
+            },
+            gridLineColor: gridColor,
+            labels: { style: { color: textColor } },
+          },
+          tooltip: {
+            formatter: function() {
+              return `<b>Value:</b> ${this.x.toFixed(2)}<br/>
+                      <b>Density:</b> ${this.y.toFixed(4)}`;
+            },
+          },
+          series: [{
+            name: 'Density',
+            data: kde,
+            color: '#409eff',
+            fillOpacity: 0.3,
+          }],
+          credits: { enabled: false },
+          legend: {
+            enabled: false,
+          },
+        });
+      }
     };
 
     const calculateKDE = (data) => {
@@ -408,22 +667,182 @@ export default defineComponent({
       return kde;
     };
 
+    const updateCorrelationTimeSeries = () => {
+      if (!correlationTimeSeries.value || !selectedVariable.value) return;
+
+      const isDark = theme.current.value.dark;
+      const textColor = isDark ? '#E0E0E0' : '#2c3e50';
+      const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
+      const gridColor = isDark ? '#333333' : '#ebeef5';
+
+      // Get correlation data for selected variable
+      const correlationData = props.correlationsData[selectedVariable.value] || [];
+
+      // Create zones for run states
+      const zones = [];
+      let currentZone = null;
+
+      if (props.data) {
+        props.data.forEach((item, index) => {
+          const time = new Date(item.DateTime).getTime();
+          const isUptime = item.run_state === 'Uptime';
+
+          if (!currentZone || currentZone.isUptime !== isUptime) {
+            if (currentZone) {
+              currentZone.end = time;
+              zones.push(currentZone);
+            }
+            currentZone = {
+              start: time,
+              isUptime,
+            };
+          }
+
+          // Handle the last point
+          if (index === props.data.length - 1) {
+            currentZone.end = time;
+            zones.push(currentZone);
+          }
+        });
+      }
+
+      // Process correlation data to include run state
+      const processedData = correlationData.map(point => {
+        const timestamp = point[0];
+        const correlation = point[1];
+
+        // Find the corresponding data point to get the run state
+        const dataPoint = props.data?.find(d => {
+          const dataTime = new Date(d.DateTime).getTime();
+          return Math.abs(dataTime - timestamp) < 1000; // Within 1 second
+        });
+
+        return {
+          x: timestamp,
+          y: correlation,
+          state: dataPoint?.run_state || 'Unknown',
+        };
+      });
+
+      if (charts.correlation) {
+        charts.correlation.destroy();
+      }
+
+      charts.correlation = Highcharts.chart(correlationTimeSeries.value, {
+        chart: {
+          type: 'line',
+          backgroundColor: backgroundColor,
+          height: 400,
+          marginTop: 10,
+          marginBottom: 40,
+          marginRight: 20,
+          marginLeft: 60,
+        },
+        title: {
+          text: null,
+        },
+        xAxis: {
+          type: 'datetime',
+          gridLineColor: gridColor,
+          labels: { style: { color: textColor } },
+          plotBands: zones.map(zone => ({
+            from: zone.start,
+            to: zone.end,
+            color: zone.isUptime
+              ? 'rgba(76, 175, 80, 0.1)'  // Light green for Uptime
+              : 'rgba(244, 67, 54, 0.1)',  // Light red for Downtime
+            zIndex: 0,
+            label: {
+              text: zone.isUptime ? 'Uptime' : 'Downtime',
+              style: {
+                color: zone.isUptime ? '#4CAF50' : '#F44336',
+              },
+            },
+          })),
+        },
+        yAxis: {
+          title: {
+            text: 'Correlation Coefficient',
+            style: { color: textColor },
+          },
+          min: -1,
+          max: 1,
+          gridLineColor: gridColor,
+          labels: { style: { color: textColor } },
+          plotLines: [{
+            value: 0,
+            color: gridColor,
+            width: 1,
+            zIndex: 1,
+          }],
+        },
+        tooltip: {
+          formatter: function() {
+            const point = this.point;
+            const timestamp = Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', point.x);
+            const correlation = point.y?.toFixed(3) || 'No Data';
+            const state = point.state;
+            return `<b>Time:</b> ${timestamp}<br/>
+                    <b>Correlation:</b> ${correlation}<br/>
+                    <b>State:</b> <span style="color: ${state === 'Uptime' ? '#4CAF50' : '#F44336'}">${state}</span>`;
+          },
+        },
+        series: [{
+          name: `Correlation with ${formatVariableName(props.targetVariable)}`,
+          data: processedData.map(point => ({
+            x: point.x,
+            y: point.state === 'Uptime' ? point.y : null,
+            state: point.state,
+          })),
+          color: '#1976D2',  // Single consistent color for the line
+          connectNulls: false,
+          states: {
+            hover: {
+              lineWidth: 2,
+            },
+          },
+        }],
+        credits: { enabled: false },
+        legend: {
+          enabled: true,
+          align: 'right',
+          verticalAlign: 'top',
+          floating: true,
+          backgroundColor: backgroundColor,
+          itemStyle: {
+            color: textColor,
+          },
+        },
+      });
+    };
+
     // Initialize charts when mounted
-    if (props.data) {
-      updateCharts();
-    }
+    onMounted(() => {
+      if (props.data) {
+        nextTick(() => {
+          updateAnalysisCharts();
+        });
+      }
+    });
 
     return {
       timeSeriesChart,
       kdePlot,
+      correlationTimeSeries,
       selectedVariable,
       theme,
-      updateCharts,
+      showCorrelationMatrix,
+      activeChartTab,
+      updateAnalysisCharts,
       calculateKDE,
       formatVariableName,
       sortedVariables,
+      sortedByCorrelation,
       getTrendLabel,
       getTrendColor,
+      getCorrelationColor,
+      formatCorrelation,
+      getCorrelationBarStyle,
       formatTrendInfo,
     };
   },
@@ -464,30 +883,74 @@ export default defineComponent({
 <style scoped>
 .detail-modal {
   max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .variables-panel {
   border-right: 1px solid v-bind('theme.current.value.dark ? "#333333" : "#ebeef5"');
-  max-height: 70vh;
+  height: calc(90vh - 120px);
   overflow-y: auto;
   padding-right: 16px;
 }
 
 .charts-panel {
-  max-height: 70vh;
+  height: calc(90vh - 120px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.v-window) {
+  flex: 1;
+  margin-top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.v-window__container) {
+  height: 100%;
+}
+
+:deep(.v-window-item) {
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+}
+
+:deep(.v-card-text) {
+  padding: 8px;
+  height: 100%;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .time-series-chart {
-  height: 300px;
-  border-radius: 8px;
-  overflow: hidden;
+  height: 260px;
+  border-radius: 4px;
+  overflow: visible;
+  margin: 0;
+  margin-bottom: 8px;
 }
 
 .kde-plot {
-  height: 250px;
-  border-radius: 8px;
-  overflow: hidden;
+  height: 180px;
+  border-radius: 4px;
+  overflow: visible;
+  margin: 0;
+  margin-bottom: 8px;
+}
+
+.correlation-time-series {
+  height: 400px;
+  border-radius: 4px;
+  overflow: visible;
+  margin: 0;
+  width: 100%;
+  min-height: 400px;
 }
 
 .variable-name {
@@ -538,12 +1001,9 @@ export default defineComponent({
 
 :deep(.v-card-title) {
   font-size: 1rem !important;
-  padding: 12px 16px;
+  padding: 8px 12px;
+  min-height: unset;
   border-bottom: 1px solid v-bind('theme.current.value.dark ? "#333333" : "#ebeef5"');
-}
-
-:deep(.v-card-text) {
-  padding: 16px;
 }
 
 :deep(.v-table) {
@@ -602,5 +1062,72 @@ export default defineComponent({
 .close-btn {
   flex-shrink: 0;
   margin-left: 8px !important;
+}
+
+.correlation-chip {
+  min-width: 48px;
+  text-align: center;
+}
+
+.correlation-matrix {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.correlation-table {
+  width: 100%;
+}
+
+.correlation-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.correlation-table th,
+.correlation-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid v-bind('theme.current.value.dark ? "#333333" : "#ebeef5"');
+  vertical-align: middle;
+}
+
+.correlation-table th {
+  font-weight: 500;
+  background-color: v-bind('theme.current.value.dark ? "#1E1E1E" : "#f8f9fa"');
+}
+
+.correlation-bar {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #4CAF50;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+.correlation-dialog {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.v-tabs {
+  border-bottom: 1px solid v-bind('theme.current.value.dark ? "#333333" : "#ebeef5"');
+}
+
+.v-window {
+  margin-top: 16px;
+}
+
+:deep(.v-tabs) {
+  height: 36px;
+  .v-tab {
+    height: 36px;
+  }
+}
+
+:deep(.v-card.v-card--flat) {
+  margin-bottom: 8px;
+  .pa-2 {
+    padding: 4px 8px !important;
+  }
 }
 </style>

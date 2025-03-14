@@ -2,7 +2,9 @@ import os
 import httpx
 import secrets
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +23,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe())
+
+# Global exception handler for HTTPException
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = str(exc)
+    status_code = getattr(exc, 'status_code', 500)
+    
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": error_msg,
+            "status_code": status_code
+        }
+    )
 
 for router in routers_api:
     app.include_router(router, prefix='/api')

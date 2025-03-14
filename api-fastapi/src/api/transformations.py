@@ -26,7 +26,36 @@ def calculate_std(values: List[float]) -> float:
         # Handle case with only one value
         return 0
 
-def calculate_variable_stats(df, batch_id=None):
+def calculate_correlations(df: pd.DataFrame, target_variable: str) -> Dict[str, float]:
+    """
+    Calculate correlations between target variable and all other numeric variables.
+    
+    Args:
+        df: DataFrame containing variables
+        target_variable: Name of the target variable
+        
+    Returns:
+        Dictionary of variable names and their correlation with target
+    """
+    if df.empty or target_variable not in df.columns:
+        return {}
+        
+    correlations = {}
+    numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+    
+    for col in numeric_cols:
+        if col != target_variable:
+            try:
+                # Calculate Pearson correlation
+                correlation = df[target_variable].corr(df[col])
+                if not pd.isna(correlation):
+                    correlations[col] = correlation
+            except:
+                continue
+                
+    return correlations
+
+def calculate_variable_stats(df, batch_id=None, target_variable=None):
     """Calculate advanced statistics for variables, focusing on recommendation tags."""
     if df.empty:
         return {}
@@ -45,6 +74,11 @@ def calculate_variable_stats(df, batch_id=None):
     numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
     exclude_cols = ['DateTime', 'BATCH']
     numeric_cols = [col for col in numeric_cols if col not in exclude_cols]
+
+    # Calculate correlations if target variable is provided
+    correlations = {}
+    if target_variable and target_variable in df.columns:
+        correlations = calculate_correlations(df, target_variable)
 
     # For columns that should be numeric but aren't, try to convert them
     for col in df.columns:
@@ -71,33 +105,137 @@ def calculate_variable_stats(df, batch_id=None):
             mean = float(values.mean())
             std = float(values.std())
             
+            # Handle infinite or NaN values
+            if pd.isna(mean) or np.isinf(mean):
+                mean = 0
+            if pd.isna(std) or np.isinf(std):
+                std = 0
+            
             # Calculate trend (normalized slope)
             time_values = (df['DateTime'] - df['DateTime'].min()).dt.total_seconds()
+            trend = 0
             if len(time_values) > 1:
-                slope = np.polyfit(time_values, values.astype(float), 1)[0]
-                # Normalize slope to represent relative change per hour
-                trend = (slope * 3600) / mean if mean != 0 else 0  # Convert to hourly rate
-            else:
-                trend = 0
+                try:
+                    slope = np.polyfit(time_values, values.astype(float), 1)[0]
+                    # Normalize slope to represent relative change per hour
+                    if mean != 0:
+                        trend = (slope * 3600) / mean
+                except:
+                    trend = 0
 
             # Calculate volatility (coefficient of variation)
             volatility = (std / mean * 100) if mean != 0 else 0
 
-            # Store statistics
+            # Handle infinite or NaN values in calculated stats
+            if pd.isna(trend) or np.isinf(trend):
+                trend = 0
+            if pd.isna(volatility) or np.isinf(volatility):
+                volatility = 0
+
+            # Get min/max values safely
+            try:
+                min_val = float(values.min())
+                max_val = float(values.max())
+                if pd.isna(min_val) or np.isinf(min_val):
+                    min_val = 0
+                if pd.isna(max_val) or np.isinf(max_val):
+                    max_val = 0
+                range_val = max_val - min_val
+            except:
+                min_val = max_val = range_val = 0
+
+            # Get correlation safely
+            correlation = correlations.get(col, 0)
+            if pd.isna(correlation) or np.isinf(correlation):
+                correlation = 0
+
+            # Store statistics with safe values
             stats[col] = {
                 'mean': mean,
                 'std': std,
-                'trend': float(trend),  # Relative change per hour
-                'volatility': float(volatility),  # Coefficient of variation in percentage
-                'min': float(values.min()),
-                'max': float(values.max()),
-                'range': float(values.max() - values.min()),
+                'trend': float(trend),
+                'volatility': float(volatility),
+                'min': min_val,
+                'max': max_val,
+                'range': range_val,
+                'correlation': float(correlation)
             }
         except Exception as e:
             print(f"Error calculating stats for column {col}: {str(e)}")
             continue
 
     return stats
+
+def calculate_rolling_correlation(data, variable1, variable2, window_size=20):
+    """Calculate simple point-by-point correlations between two variables.
+    
+    Args:
+        data: DataFrame containing the variables
+        variable1: Name of first variable
+        variable2: Name of second variable
+        window_size: Not used anymore
+        
+    Returns:
+        List of [timestamp, correlation] pairs
+    """
+    if not all(col in data.columns for col in [variable1, variable2, 'DateTime']):
+        return []
+        
+    try:
+        # Convert to numeric, dropping any non-numeric values
+        data[variable1] = pd.to_numeric(data[variable1], errors='coerce')
+        data[variable2] = pd.to_numeric(data[variable2], errors='coerce')
+        
+        # Drop any rows where either variable is NaN or infinite
+        valid_data = data[
+            ~data[variable1].isna() & 
+            ~data[variable2].isna() & 
+            ~np.isinf(data[variable1]) & 
+            ~np.isinf(data[variable2])
+        ].copy()
+        
+        if len(valid_data) < 2:
+            return []
+            
+        # Calculate overall correlation to get the sign
+        overall_corr = valid_data[variable1].corr(valid_data[variable2])
+        if pd.isna(overall_corr):
+            overall_corr = 0
+            
+        # Calculate means and standard deviations
+        mean1 = valid_data[variable1].mean()
+        mean2 = valid_data[variable2].mean()
+        std1 = valid_data[variable1].std()
+        std2 = valid_data[variable2].std()
+        
+        if std1 == 0 or std2 == 0:  # Avoid division by zero
+            return []
+            
+        # Calculate point-by-point correlations
+        result = []
+        for _, row in valid_data.iterrows():
+            ts = int(pd.Timestamp(row['DateTime']).timestamp() * 1000)  # Convert to milliseconds
+            
+            # Calculate z-scores
+            z1 = (row[variable1] - mean1) / std1
+            z2 = (row[variable2] - mean2) / std2
+            
+            # Calculate correlation as product of z-scores, normalized to [-1, 1]
+            # and maintaining the sign of the overall correlation
+            corr = (z1 * z2) / max(abs(z1 * z2), 1) * np.sign(overall_corr)
+            
+            try:
+                corr_float = float(corr)
+                if np.isfinite(corr_float):
+                    result.append([ts, corr_float])
+            except (ValueError, OverflowError, TypeError):
+                continue
+                
+        return sorted(result, key=lambda x: x[0])  # Sort by timestamp
+        
+    except Exception as e:
+        print(f"Error calculating correlation: {str(e)}")
+        return []
 
 @router.post("/transformations/process-data")
 async def process_data(request: Request):
@@ -308,32 +446,74 @@ async def get_batch_details(request: Request):
         # Parse request body
         try:
             data = await request.json()
-        except json.JSONDecodeError:
-            return {"error": "Invalid JSON in request body"}
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "message": "Invalid JSON in request body",
+                    "error": str(e)
+                }
+            )
 
         # Extract and validate required fields
         production_data = data.get("production_data", {})
         alertman_data = data.get("alertman_data", {})
         batch_id = data.get("batch_id")
         target_variable = data.get("target_variable")
-        if not production_data or not isinstance(production_data, dict):
-            return {"error": "Invalid or missing production data"}
+
+        # Validate request data
+        if not isinstance(production_data, dict) or not production_data.get("items"):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Invalid production data format",
+                    "expected": {
+                        "production_data": {
+                            "items": "[array of records]"
+                        }
+                    }
+                }
+            )
             
         if not batch_id:
-            return {"error": "Batch ID not specified"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Batch ID not specified",
+                    "field": "batch_id"
+                }
+            )
         
         if not target_variable:
-            return {"error": "Target variable not specified"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Target variable not specified",
+                    "field": "target_variable"
+                }
+            )
         
         # Convert to pandas DataFrame with error handling
         try:
             df_production = pd.DataFrame.from_dict(production_data.get("items", []))
             df_alertman = pd.DataFrame.from_dict(alertman_data.get("items", []))
         except Exception as e:
-            return {"error": f"Error converting data to DataFrame: {str(e)}"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Error converting data to DataFrame",
+                    "error": str(e)
+                }
+            )
         
         if df_production.empty:
-            return {"error": "No data found in production data"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "No data found in production data",
+                    "error": "Empty DataFrame"
+                }
+            )
             
         # Get recommendation tags from alertman data
         reco_tags = []
@@ -341,32 +521,50 @@ async def get_batch_details(request: Request):
             reco_tags = df_alertman[df_alertman['decision'].notna() & (df_alertman['decision'] != '')]['tag'].unique().tolist()
         
         if not reco_tags:
-            return {"error": "No recommendation tags found in alertman data"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "No recommendation tags found in alertman data",
+                    "required_columns": ["decision", "tag"]
+                }
+            )
             
         # Convert DateTime column with error handling
         try:
             if 'DateTime' in df_production.columns:
                 df_production['DateTime'] = pd.to_datetime(df_production['DateTime'])
         except Exception as e:
-            return {"error": f"Error converting DateTime column: {str(e)}"}
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Error converting DateTime column",
+                    "error": str(e)
+                }
+            )
         
         # Filter for the specific batch
         batch_data = df_production[df_production['BATCH'] == batch_id]
-
-        print(batch_id)
-        print(batch_data.run_state.value_counts())
         
         if batch_data.empty:
-            return {"error": f"No data found for batch {batch_id}"}
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": f"No data found for batch {batch_id}",
+                    "batch_id": batch_id
+                }
+            )
         
         # Convert numeric columns (only for recommendation tags)
+        numeric_conversion_errors = []
         for tag in reco_tags:
             if tag in df_production.columns:
                 try:
                     df_production[tag] = pd.to_numeric(df_production[tag], errors='coerce')
                 except Exception as e:
-                    print(f"Error converting column {tag}: {str(e)}")
-                    continue
+                    numeric_conversion_errors.append({"tag": tag, "error": str(e)})
+        
+        if numeric_conversion_errors:
+            print("Warning - Numeric conversion errors:", numeric_conversion_errors)
         
         # Calculate variable statistics (only for recommendation tags)
         try:
@@ -374,9 +572,34 @@ async def get_batch_details(request: Request):
             cols_to_keep = ['DateTime', 'BATCH', 'run_state'] + reco_tags + [target_variable]
             cols_available = [col for col in cols_to_keep if col in df_production.columns]
             df_filtered = df_production.loc[df_production['run_state'] == 'Uptime', cols_available]
-            variable_stats = calculate_variable_stats(df_filtered, batch_id)
+            variable_stats = calculate_variable_stats(df_filtered, batch_id, target_variable)
         except Exception as e:
-            return {"error": f"Error calculating statistics: {str(e)}"}
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Error calculating statistics",
+                    "error": str(e)
+                }
+            )
+        
+        # Calculate rolling correlations for each variable with target
+        correlations_data = {}
+        correlation_errors = []
+        for variable in reco_tags:
+            if variable != target_variable:
+                try:
+                    corr_data = calculate_rolling_correlation(
+                        batch_data,
+                        variable,
+                        target_variable
+                    )
+                    if corr_data:  # Only include if we have correlation data
+                        correlations_data[variable] = corr_data
+                except Exception as e:
+                    correlation_errors.append({"variable": variable, "error": str(e)})
+        
+        if correlation_errors:
+            print("Warning - Correlation calculation errors:", correlation_errors)
         
         # Get batch data for visualization
         try:
@@ -391,22 +614,56 @@ async def get_batch_details(request: Request):
                 # Ensure all values are JSON serializable
                 for record in processed_data:
                     for key, value in record.items():
-                        if pd.isna(value):
+                        if pd.isna(value) or (isinstance(value, float) and np.isinf(value)):
                             record[key] = None
                         elif isinstance(value, pd.Timestamp):
                             record[key] = value.isoformat()
                         elif isinstance(value, (np.int64, np.float64)):
-                            record[key] = float(value)
+                            # Convert numpy types to Python types and handle inf values
+                            try:
+                                float_val = float(value)
+                                if np.isinf(float_val) or np.isnan(float_val):
+                                    record[key] = None
+                                else:
+                                    record[key] = float_val
+                            except:
+                                record[key] = None
             except Exception as e:
-                return {"error": f"Error converting data to JSON: {str(e)}"}
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "message": "Error converting data to JSON",
+                        "error": str(e)
+                    }
+                )
                 
             return {
                 "processed_data": processed_data,
-                "variable_stats": variable_stats
+                "variable_stats": variable_stats,
+                "correlations_data": correlations_data,
+                "warnings": {
+                    "numeric_conversion_errors": numeric_conversion_errors if numeric_conversion_errors else None,
+                    "correlation_errors": correlation_errors if correlation_errors else None
+                }
             }
-        except Exception as e:
-            return {"error": f"Error processing batch data: {str(e)}"}
             
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Error processing batch data",
+                    "error": str(e)
+                }
+            )
+            
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Unexpected error in batch details: {str(e)}")
-        return {"error": f"Unexpected error: {str(e)}"} 
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Unexpected error in batch details",
+                "error": str(e)
+            }
+        ) 
