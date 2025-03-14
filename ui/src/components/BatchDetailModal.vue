@@ -469,7 +469,6 @@ export default defineComponent({
 
     const updateAnalysisCharts = () => {
       if (!props.data || !selectedVariable.value) return;
-
       const isDark = theme.current.value.dark;
       const textColor = isDark ? '#E0E0E0' : '#2c3e50';
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
@@ -482,6 +481,9 @@ export default defineComponent({
           item[selectedVariable.value],
         ])
         .filter(point => point[1] !== null);
+
+      // length of timeSeriesData
+      console.log(timeSeriesData.length);
 
       // Create zones for run states
       const zones = [];
@@ -669,7 +671,6 @@ export default defineComponent({
 
     const updateCorrelationTimeSeries = () => {
       if (!correlationTimeSeries.value || !selectedVariable.value) return;
-
       const isDark = theme.current.value.dark;
       const textColor = isDark ? '#E0E0E0' : '#2c3e50';
       const backgroundColor = isDark ? '#1E1E1E' : '#ffffff';
@@ -677,50 +678,45 @@ export default defineComponent({
 
       // Get correlation data for selected variable
       const correlationData = props.correlationsData[selectedVariable.value] || [];
+      console.log(correlationData.length);
 
-      // Create zones for run states
+      // Create zones for run states using correlation data
       const zones = [];
       let currentZone = null;
 
-      if (props.data) {
-        props.data.forEach((item, index) => {
-          const time = new Date(item.DateTime).getTime();
-          const isUptime = item.run_state === 'Uptime';
+      correlationData.forEach((point, index) => {
+        const timestamp = point[0];
+        const isUptime = point[2] === 'Uptime';
 
-          if (!currentZone || currentZone.isUptime !== isUptime) {
-            if (currentZone) {
-              currentZone.end = time;
-              zones.push(currentZone);
-            }
-            currentZone = {
-              start: time,
-              isUptime,
-            };
-          }
-
-          // Handle the last point
-          if (index === props.data.length - 1) {
-            currentZone.end = time;
+        if (!currentZone || currentZone.isUptime !== isUptime) {
+          if (currentZone) {
+            currentZone.end = timestamp;
             zones.push(currentZone);
           }
-        });
-      }
+          currentZone = {
+            start: timestamp,
+            isUptime,
+          };
+        }
+
+        // Handle the last point
+        if (index === correlationData.length - 1) {
+          currentZone.end = timestamp;
+          zones.push(currentZone);
+        }
+      });
 
       // Process correlation data to include run state
       const processedData = correlationData.map(point => {
         const timestamp = point[0];
         const correlation = point[1];
-
-        // Find the corresponding data point to get the run state
-        const dataPoint = props.data?.find(d => {
-          const dataTime = new Date(d.DateTime).getTime();
-          return Math.abs(dataTime - timestamp) < 1000; // Within 1 second
-        });
+        const runState = point[2];
 
         return {
           x: timestamp,
           y: correlation,
-          state: dataPoint?.run_state || 'Unknown',
+          runState: runState,
+          color: runState === 'Uptime' ? undefined : '#9e9e9e',  // Grey for downtime points
         };
       });
 
@@ -736,7 +732,9 @@ export default defineComponent({
           marginTop: 10,
           marginBottom: 40,
           marginRight: 20,
-          marginLeft: 60,
+          marginLeft: 80,
+          spacingBottom: 0,
+          spacingTop: 0,
         },
         title: {
           text: null,
@@ -749,24 +747,18 @@ export default defineComponent({
             from: zone.start,
             to: zone.end,
             color: zone.isUptime
-              ? 'rgba(76, 175, 80, 0.1)'  // Light green for Uptime
-              : 'rgba(244, 67, 54, 0.1)',  // Light red for Downtime
-            zIndex: 0,
-            label: {
-              text: zone.isUptime ? 'Uptime' : 'Downtime',
-              style: {
-                color: zone.isUptime ? '#4CAF50' : '#F44336',
-              },
-            },
+              ? 'rgba(76, 175, 80, 0.1)' // Light green for Uptime
+              : 'rgba(244, 67, 54, 0.1)', // Light red for Downtime
           })),
         },
         yAxis: {
           title: {
-            text: 'Correlation Coefficient',
+            text: 'Correlation',
             style: { color: textColor },
           },
           min: -1,
           max: 1,
+          tickInterval: 0.2,
           gridLineColor: gridColor,
           labels: { style: { color: textColor } },
           plotLines: [{
@@ -780,26 +772,50 @@ export default defineComponent({
           formatter: function() {
             const point = this.point;
             const timestamp = Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', point.x);
-            const correlation = point.y?.toFixed(3) || 'No Data';
-            const state = point.state;
+            const correlation = point.y.toFixed(3);
+            const runState = point.runState;
+
             return `<b>Time:</b> ${timestamp}<br/>
                     <b>Correlation:</b> ${correlation}<br/>
-                    <b>State:</b> <span style="color: ${state === 'Uptime' ? '#4CAF50' : '#F44336'}">${state}</span>`;
+                    <b>State:</b> <span style="color: ${runState === 'Uptime' ? '#4CAF50' : '#9e9e9e'}">${runState}</span>`;
+          },
+        },
+        plotOptions: {
+          series: {
+            states: {
+              hover: {
+                enabled: true,
+                lineWidth: 2,
+              },
+            },
           },
         },
         series: [{
           name: `Correlation with ${formatVariableName(props.targetVariable)}`,
-          data: processedData.map(point => ({
-            x: point.x,
-            y: point.state === 'Uptime' ? point.y : null,
-            state: point.state,
-          })),
-          color: '#1976D2',  // Single consistent color for the line
-          connectNulls: false,
-          states: {
-            hover: {
-              lineWidth: 2,
-            },
+          data: processedData,
+          zones: [{
+            value: -0.6,
+            color: '#ef5350',  // Strong negative - red
+          }, {
+            value: -0.3,
+            color: '#ff8a65',  // Moderate negative - light red
+          }, {
+            value: 0,
+            color: '#ffcc80',  // Weak negative - orange
+          }, {
+            value: 0.3,
+            color: '#a5d6a7',  // Weak positive - light green
+          }, {
+            value: 0.6,
+            color: '#66bb6a',  // Moderate positive - green
+          }, {
+            color: '#43a047',  // Strong positive - dark green
+          }],
+          zoneAxis: 'y',
+          lineWidth: 2,
+          marker: {
+            enabled: true,
+            radius: 3,
           },
         }],
         credits: { enabled: false },

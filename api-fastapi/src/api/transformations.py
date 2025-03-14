@@ -166,54 +166,42 @@ def calculate_variable_stats(df, batch_id=None, target_variable=None):
 
     return stats
 
-def calculate_rolling_correlation(data, variable1, variable2, window_size=20):
+def calculate_point_correlation(data, variable1, variable2):
     """Calculate simple point-by-point correlations between two variables.
     
     Args:
         data: DataFrame containing the variables
         variable1: Name of first variable
         variable2: Name of second variable
-        window_size: Not used anymore
         
     Returns:
-        List of [timestamp, correlation] pairs
+        List of [timestamp, correlation, run_state] triplets
     """
-    if not all(col in data.columns for col in [variable1, variable2, 'DateTime']):
+    if not all(col in data.columns for col in [variable1, variable2, 'DateTime', 'run_state']):
         return []
         
     try:
-        # Convert to numeric, dropping any non-numeric values
+        # Convert to numeric, handling NaN and inf values
         data[variable1] = pd.to_numeric(data[variable1], errors='coerce')
         data[variable2] = pd.to_numeric(data[variable2], errors='coerce')
         
-        # Drop any rows where either variable is NaN or infinite
-        valid_data = data[
-            ~data[variable1].isna() & 
-            ~data[variable2].isna() & 
-            ~np.isinf(data[variable1]) & 
-            ~np.isinf(data[variable2])
-        ].copy()
+        # Replace infinite values with 0
+        data[variable1] = data[variable1].replace([np.inf, -np.inf], 0)
+        data[variable2] = data[variable2].replace([np.inf, -np.inf], 0)
         
-        if len(valid_data) < 2:
-            return []
-            
-        # Calculate overall correlation to get the sign
-        overall_corr = valid_data[variable1].corr(valid_data[variable2])
-        if pd.isna(overall_corr):
-            overall_corr = 0
-            
+        # Replace NaN with 0
+        data[variable1] = data[variable1].fillna(0)
+        data[variable2] = data[variable2].fillna(0)
+        
         # Calculate means and standard deviations
-        mean1 = valid_data[variable1].mean()
-        mean2 = valid_data[variable2].mean()
-        std1 = valid_data[variable1].std()
-        std2 = valid_data[variable2].std()
-        
-        if std1 == 0 or std2 == 0:  # Avoid division by zero
-            return []
+        mean1 = data[variable1].mean()
+        mean2 = data[variable2].mean()
+        std1 = data[variable1].std() or 1  # Use 1 if std is 0
+        std2 = data[variable2].std() or 1  # Use 1 if std is 0
             
         # Calculate point-by-point correlations
         result = []
-        for _, row in valid_data.iterrows():
+        for _, row in data.iterrows():
             ts = int(pd.Timestamp(row['DateTime']).timestamp() * 1000)  # Convert to milliseconds
             
             # Calculate z-scores
@@ -221,16 +209,12 @@ def calculate_rolling_correlation(data, variable1, variable2, window_size=20):
             z2 = (row[variable2] - mean2) / std2
             
             # Calculate correlation as product of z-scores, normalized to [-1, 1]
-            # and maintaining the sign of the overall correlation
-            corr = (z1 * z2) / max(abs(z1 * z2), 1) * np.sign(overall_corr)
+            corr = (z1 * z2) / max(abs(z1 * z2), 1) if abs(z1 * z2) > 0 else 0
             
-            try:
-                corr_float = float(corr)
-                if np.isfinite(corr_float):
-                    result.append([ts, corr_float])
-            except (ValueError, OverflowError, TypeError):
-                continue
-                
+            # Ensure correlation is finite and in [-1, 1] range
+            corr = max(min(float(corr), 1), -1)
+            result.append([ts, corr, row['run_state']])
+            
         return sorted(result, key=lambda x: x[0])  # Sort by timestamp
         
     except Exception as e:
@@ -588,7 +572,7 @@ async def get_batch_details(request: Request):
         for variable in reco_tags:
             if variable != target_variable:
                 try:
-                    corr_data = calculate_rolling_correlation(
+                    corr_data = calculate_point_correlation(
                         batch_data,
                         variable,
                         target_variable
