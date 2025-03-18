@@ -182,16 +182,16 @@ def calculate_point_correlation(data, variable1, variable2):
         
     try:
         # Convert to numeric, handling NaN and inf values
-        data[variable1] = pd.to_numeric(data[variable1], errors='coerce')
-        data[variable2] = pd.to_numeric(data[variable2], errors='coerce')
+        data.loc[:, variable1] = pd.to_numeric(data.loc[:, variable1], errors='coerce')
+        data.loc[:, variable2] = pd.to_numeric(data.loc[:, variable2], errors='coerce')
         
         # Replace infinite values with 0
-        data[variable1] = data[variable1].replace([np.inf, -np.inf], 0)
-        data[variable2] = data[variable2].replace([np.inf, -np.inf], 0)
+        data.loc[:, variable1] = data.loc[:, variable1].replace([np.inf, -np.inf], 0)
+        data.loc[:, variable2] = data.loc[:, variable2].replace([np.inf, -np.inf], 0)
         
         # Replace NaN with 0
-        data[variable1] = data[variable1].fillna(0)
-        data[variable2] = data[variable2].fillna(0)
+        data.loc[:, variable1] = data.loc[:, variable1].fillna(0)
+        data.loc[:, variable2] = data.loc[:, variable2].fillna(0)
         
         # Calculate means and standard deviations
         mean1 = data[variable1].mean()
@@ -214,7 +214,7 @@ def calculate_point_correlation(data, variable1, variable2):
             # Ensure correlation is finite and in [-1, 1] range
             corr = max(min(float(corr), 1), -1)
             result.append([ts, corr, row['run_state']])
-            
+
         return sorted(result, key=lambda x: x[0])  # Sort by timestamp
         
     except Exception as e:
@@ -287,6 +287,7 @@ async def process_data(request: Request):
             reco_tags = []
             product_batches = []
         
+        print(reco_tags)
         # Get all batches from filtered data
         if 'BATCH' in df_filtered.columns:
             all_batches = df_filtered['BATCH'].dropna().unique().tolist()

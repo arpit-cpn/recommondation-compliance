@@ -274,7 +274,7 @@ export default defineComponent({
     };
 
     const formatVariableName = (name) => {
-      return name.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim();
+      return name.replace(/_/g, ' ');
     };
 
     // Watch for theme changes
